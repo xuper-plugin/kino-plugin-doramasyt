@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- The art lookup now says in the log what it did (how many titles, whether kino.tmdb exists, how many got a poster), to find out why a device shows no covers.
+  / La búsqueda de carátulas deja en el registro lo que hizo.
+
 ## 0.1.1
 
 - Fix: the covers show up. doramasyt.com keeps its images behind Cloudflare, which answers 403 to the HTTP client Kino loads images

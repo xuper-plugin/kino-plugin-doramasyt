@@ -94,6 +94,9 @@ export async function addArt(items) {
     else todo.push(item);
   }
   let spent = 0;
+  let found = 0;
+  const say = (msg) => { try { kino.log("art: " + msg); } catch (_) { /* no log */ } };
+  say(`${items.length - todo.length} cached, ${todo.length} to look up, kino.tmdb is ${typeof kino.tmdb}`);
   try {
     while (todo.length && spent < BUDGET) {
       const batch = todo.splice(0, Math.min(BATCH, BUDGET - spent));
@@ -101,12 +104,13 @@ export async function addArt(items) {
       // allSettled: the ones that answered keep their art even when a later one hits Kino's limit; then the loop stops
       const arts = await Promise.allSettled(batch.map((item) => lookupArt(item.title)));
       let stop = null;
-      arts.forEach((a, i) => { if (a.status === "fulfilled") apply(batch[i], a.value); else stop = stop || a.reason; });
+      arts.forEach((a, i) => { if (a.status === "fulfilled") { apply(batch[i], a.value); if (a.value && a.value.poster) found++; } else stop = stop || a.reason; });
       if (stop) throw stop;
     }
   } catch (e) {
-    if (typeof kino.log === "function") kino.log("art: stopped (" + ((e && e.code) || (e && e.message)) + ")");
+    say("stopped (" + ((e && e.code) || (e && e.message)) + ")");
   }
+  say(`${spent} looked up, ${found} with a poster`);
   return items;
 }
 

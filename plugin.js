@@ -336,6 +336,14 @@ async function addArt(items) {
     else todo.push(item);
   }
   let spent = 0;
+  let found = 0;
+  const say = (msg) => {
+    try {
+      kino.log("art: " + msg);
+    } catch (_) {
+    }
+  };
+  say(`${items.length - todo.length} cached, ${todo.length} to look up, kino.tmdb is ${typeof kino.tmdb}`);
   try {
     while (todo.length && spent < BUDGET) {
       const batch = todo.splice(0, Math.min(BATCH, BUDGET - spent));
@@ -343,14 +351,17 @@ async function addArt(items) {
       const arts = await Promise.allSettled(batch.map((item) => lookupArt(item.title)));
       let stop = null;
       arts.forEach((a, i) => {
-        if (a.status === "fulfilled") apply(batch[i], a.value);
-        else stop = stop || a.reason;
+        if (a.status === "fulfilled") {
+          apply(batch[i], a.value);
+          if (a.value && a.value.poster) found++;
+        } else stop = stop || a.reason;
       });
       if (stop) throw stop;
     }
   } catch (e) {
-    if (typeof kino.log === "function") kino.log("art: stopped (" + (e && e.code || e && e.message) + ")");
+    say("stopped (" + (e && e.code || e && e.message) + ")");
   }
+  say(`${spent} looked up, ${found} with a poster`);
   return items;
 }
 async function showArt(title) {
