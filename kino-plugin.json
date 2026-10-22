@@ -1,11 +1,11 @@
 {
   "id": "doramasyt",
   "name": "DoramasYT",
-  "version": "0.1.4",
-  "apiVersion": 6,
+  "version": "0.2.0",
+  "apiVersion": 9,
   "entry": "plugin.js",
   "icon": "icon.png",
-  "description": "Doramas asiáticos en español (latino, castellano o subtitulados) de doramasyt.com: en emisión, catálogo, películas y búsqueda.",
+  "description": "Doramas asiáticos en español (latino, castellano o subtitulados) de doramasyt.com: sección propia, géneros, en emisión, películas y búsqueda.",
   "author": "xuper-plugin",
   "homepage": "https://github.com/xuper-plugin/kino-plugin-doramasyt",
   "hosts": [
@@ -39,12 +39,89 @@
     "home",
     "browse",
     "episodes",
-    "resolve"
+    "resolve",
+    "download"
   ],
   "streamHosts": "any",
   "categories": [
     "series",
     "movies"
   ],
-  "color": "#7C3AED"
+  "color": "#7C3AED",
+  "section": {
+    "label": "Doramas",
+    "labelEn": "Dramas"
+  },
+  "theme": {
+    "accent": "#7C3AED",
+    "onAccent": "#FFFFFF",
+    "background": "#0F0A1E",
+    "surface": "#1B1430",
+    "highlight": "#C4B5FD"
+  },
+  "settings": [
+    {
+      "key": "audioSection",
+      "type": "section",
+      "label": "Idioma",
+      "labelEn": "Language",
+      "hint": "Elige qué doramas salen en las listas, las categorías y la búsqueda.",
+      "hintEn": "Choose which dramas show in lists, categories and search."
+    },
+    {
+      "key": "audio",
+      "type": "select",
+      "label": "Mostrar",
+      "labelEn": "Show",
+      "default": "all",
+      "options": [
+        {
+          "value": "all",
+          "label": "Todos",
+          "labelEn": "All"
+        },
+        {
+          "value": "dub",
+          "label": "Solo doblados (latino o castellano)",
+          "labelEn": "Dubbed only (Latino or Castilian)"
+        },
+        {
+          "value": "sub",
+          "label": "Solo subtitulados",
+          "labelEn": "Subtitled only"
+        }
+      ]
+    },
+    {
+      "key": "coversSection",
+      "type": "section",
+      "label": "Carátulas",
+      "labelEn": "Covers",
+      "hint": "El sitio bloquea sus imágenes para Kino; las carátulas salen de TMDB, por título.",
+      "hintEn": "The site blocks its images for Kino; covers come from TMDB, by title."
+    },
+    {
+      "key": "covers",
+      "type": "toggle",
+      "label": "Carátulas de TMDB",
+      "labelEn": "TMDB covers",
+      "default": true,
+      "hint": "Apágalas para no pedir nada a TMDB.",
+      "hintEn": "Turn off to ask TMDB for nothing."
+    },
+    {
+      "key": "info",
+      "type": "status",
+      "label": "Estado",
+      "labelEn": "Status"
+    },
+    {
+      "key": "clearCache",
+      "type": "action",
+      "label": "Vaciar caché",
+      "labelEn": "Clear cache",
+      "confirm": "¿Vaciar la caché de listas y carátulas?",
+      "confirmEn": "Clear the list and cover cache?"
+    }
+  ]
 }

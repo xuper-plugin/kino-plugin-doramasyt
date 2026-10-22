@@ -4,10 +4,10 @@
 // caplist, and an episode's players are opened with the extractors in ./extractors (Mp4Upload, LuluVdo, MixDrop, StreamTape).
 // Declared hosts: the site, those four players and the pages they redirect to. `streamHosts: "any"` is for the CDNs the files sit on.
 
-import { SITE, slugOf, baseOf, watchUrl, langOf, parseCards, parseShow, parseEpisodeNumbers, parsePlayers, parseIframe } from "./doramasyt.js";
+import { SITE, GENRES, baseOf, watchUrl, langOf, parseCards, parseShow, parseFacts, parseLatestEpisodes, parseEpisodeNumbers, parsePlayers, parseIframe } from "./doramasyt.js";
 import { extractorFor } from "./extractors/index.js";
 import { makeReq, UA } from "./util/http.js";
-import { addArt, showArt } from "./art.js";
+import { addArt, showArt, cachedArt } from "./art.js";
 
 const RESOLVE_MS = 40000;
 const MAX_COPIES = 6;
@@ -17,7 +17,8 @@ const CACHE_MS = 10 * 60 * 1000;
 
 const STRINGS = {
   es: {
-    onAir: "En emisión", dramas: "Doramas", movies: "Películas",
+    onAir: "En emisión", dramas: "Doramas", movies: "Películas", news: "Novedades", genres: "Géneros", newEpisodes: "Capítulos nuevos", more: "Más doramas", moreMovies: "Más películas", episodeShort: "Cap.",
+    heroText: "Doramas en español, con capítulos nuevos cada semana.", statusLine: "Carátulas guardadas: {n}", cacheCleared: "Caché vaciada.",
     lat: "Latino", esp: "Castellano", sub: "Subtitulado", episode: "Capítulo",
     unavailable: "El servicio no está disponible en este momento.",
     noEpisodes: "No se encontraron capítulos de este dorama.",
@@ -25,7 +26,8 @@ const STRINGS = {
     heroOnAir: "Doramas en emisión, con capítulos nuevos cada semana.",
   },
   en: {
-    onAir: "On air", dramas: "Dramas", movies: "Movies",
+    onAir: "On air", dramas: "Dramas", movies: "Movies", news: "What's new", genres: "Genres", newEpisodes: "New episodes", more: "More dramas", moreMovies: "More movies", episodeShort: "Ep.",
+    heroText: "Dramas in Spanish, with new episodes every week.", statusLine: "Covers kept: {n}", cacheCleared: "Cache cleared.",
     lat: "Latino", esp: "Castilian", sub: "Subtitled", episode: "Episode",
     unavailable: "The service is not available right now.",
     noEpisodes: "No episodes found for this drama.",
@@ -82,38 +84,71 @@ const LISTINGS = {
   peliculas: { path: "/doramas?categoria=pelicula", titleKey: "movies", kind: "movie" },
 };
 
-async function listing(name, page) {
-  const def = LISTINGS[name];
+/** `{ path, titleKey, kind }` for a browse ref: "list:<name>" or "genre:<slug>"; null for anything else. */
+function listingOf(ref) {
+  const m = /^(list|genre):([a-z0-9-]+)$/.exec(String(ref || ""));
+  if (!m) return null;
+  if (m[1] === "list") return LISTINGS[m[2]] ? { ...LISTINGS[m[2]], name: m[2] } : null;
+  const g = GENRES.find((x) => x.slug === m[2]);
+  return g ? { path: "/genero/" + g.slug, title: g.title, kind: "series", name: "genre-" + g.slug } : null;
+}
+
+/** What the person chose in Ajustes ▸ DoramasYT to show: everything, only what is dubbed (Latino, Castellano) or only what is subtitled. */
+function audioChoice() {
+  try { const v = kino.config.get("audio"); return v === "dub" || v === "sub" ? v : "all"; } catch (_) { return "all"; }
+}
+const byAudio = (cards) => {
+  const a = audioChoice();
+  if (a === "all") return cards;
+  return cards.filter((c) => (langOf(c.title) !== "sub") === (a === "dub"));
+};
+
+async function listing(def, page) {
   const url = SITE + def.path + (page > 1 ? (def.path.includes("?") ? "&" : "?") + "page=" + page : "");
-  return cached(`${name}:${page}`, async () => parseCards(await getPage(url)));
+  return cached(`${def.name}:${page}`, async () => parseCards(await getPage(url)));
+}
+
+/** A Home or section row: the first page of a listing, art on its first cards, a "Ver más" ref. */
+async function rowOf(id, def, ref) {
+  const cards = byAudio(await listing(def, 1));
+  const items = cards.slice(0, 20).map((c) => toItem(c, def.kind));
+  return items.length ? { id, title: def.title || t(def.titleKey), items, ref, genre: def.kind === "movie" ? "peliculas" : "series" } : null;
+}
+
+/** The "Capítulos actualizados" cards of the home page, as shows with their newest episode; null when fewer than three shows (a bulk upload of one show is not news). */
+async function newEpisodesRow() {
+  const cards = await cached("latest", async () => parseLatestEpisodes(await getPage(SITE + "/")));
+  const shown = byAudio(cards.map((c) => ({ ...c })));
+  const items = shown.slice(0, 20).map((c) => { const it = toItem(c, "series"); it.badges = [`${t("episodeShort")} ${c.episode}`, ...(it.badges || [])]; return it; });
+  return items.length >= 3 ? { id: "nuevos", title: t("newEpisodes"), items, genre: "series" } : null;
+}
+
+const safeRow = async (id, fn) => { try { return await fn(); } catch (e) { kino.log("row " + id + ": " + (e && e.message)); return null; } };
+
+/** TMDB art over the cards of the rows, spread so each row gets its first cards (see art.js). */
+async function withArt(rows) {
+  const order = [];
+  for (let i = 0; i < 20; i++) for (const row of rows) if (row.items[i]) order.push(row.items[i]);
+  await addArt(order);
+  return rows;
 }
 
 // ---- exports ----
 
 export async function home() {
-  const names = Object.keys(LISTINGS);
-  const rows = await Promise.all(names.map(async (name) => {
-    try {
-      const cards = await listing(name, 1);
-      const def = LISTINGS[name];
-      const items = cards.slice(0, 20).map((c) => toItem(c, def.kind));
-      return items.length ? { id: name, title: t(def.titleKey), items, ref: "list:" + name, genre: def.kind === "movie" ? "peliculas" : "series" } : null;
-    } catch (e) { kino.log("home row " + name + ": " + (e && e.message)); return null; }
-  }));
-  const shown = rows.filter(Boolean);
-  // The site's own posters are blocked for Kino's image loader (see art.js): TMDB art, spread over the rows so each gets its first cards.
-  const order = [];
-  for (let i = 0; i < 20; i++) for (const row of shown) if (row.items[i]) order.push(row.items[i]);
-  await addArt(order);
-  return shown;
+  const rows = (await Promise.all([
+    safeRow("nuevos", newEpisodesRow),
+    ...Object.keys(LISTINGS).map((name) => safeRow(name, () => rowOf(name, listingOf("list:" + name), "list:" + name))),
+  ])).filter(Boolean);
+  return withArt(rows);
 }
 
 export async function browse(ref, cursor) {
-  const m = /^list:(emision|doramas|peliculas)$/.exec(String(ref || ""));
-  if (!m) return { items: [] };
+  const def = listingOf(ref);
+  if (!def) return { items: [] };
   const page = cursor ? Math.max(1, parseInt(cursor, 10) || 1) : 1;
-  const cards = await listing(m[1], page);
-  const items = cards.map((c) => toItem(c, LISTINGS[m[1]].kind));
+  const cards = await listing(def, page);
+  const items = byAudio(cards).map((c) => toItem(c, def.kind));
   await addArt(items);
   return { items, next: cards.length >= 24 ? String(page + 1) : undefined };
 }
@@ -122,7 +157,88 @@ export async function search(arg) {
   const q = String(typeof arg === "string" ? arg : (arg && arg.q) || "").trim();
   if (q.length < 2) return [];
   const cards = await cached("s:" + q.toLowerCase(), async () => parseCards(await getPage(`${SITE}/buscar?q=${encodeURIComponent(q)}`)));
-  return addArt(cards.slice(0, 40).map((c) => toItem(c, "series")));
+  return addArt(byAudio(cards).slice(0, 40).map((c) => toItem(c, "series")));
+}
+
+// ---- the plugin's own section, categories and details ----
+
+const SECTION_TABS = () => [
+  { id: "novedades", label: t("news") },
+  { id: "doramas", label: t("dramas") },
+  { id: "peliculas", label: t("movies") },
+  { id: "generos", label: t("genres") },
+];
+
+/** The hero of a section: the first show that has TMDB art (background and synopsis), else the first show with the plain line. */
+function heroOf(rows) {
+  const first = rows.flatMap((r) => r.items)[0];
+  if (!first) return undefined;
+  const art = cachedArt(first.title) || {};
+  const hero = { title: first.title, text: String(art.overview || t("heroText")).slice(0, 300) };
+  if (art.backdrop) hero.image = art.backdrop;
+  return hero;
+}
+
+export async function section({ tab } = {}) {
+  const tabs = SECTION_TABS();
+  const chosen = tabs.some((x) => x.id === tab) ? tab : "novedades";
+  let rows = [];
+  if (chosen === "novedades") {
+    rows = [await safeRow("nuevos", newEpisodesRow), await safeRow("emision", () => rowOf("emision", listingOf("list:emision"), "list:emision"))];
+  } else if (chosen === "doramas") {
+    const d = listingOf("list:doramas");
+    rows = [await safeRow("doramas", () => rowOf("doramas", d, "list:doramas")), await safeRow("doramas2", async () => {
+      const items = byAudio(await listing(d, 2)).map((c) => toItem(c, "series"));
+      return items.length ? { id: "doramas2", title: t("more"), items, genre: "series" } : null;
+    })];
+  } else if (chosen === "peliculas") {
+    const d = listingOf("list:peliculas");
+    rows = [await safeRow("peliculas", () => rowOf("peliculas", d, "list:peliculas")), await safeRow("peliculas2", async () => {
+      const items = byAudio(await listing(d, 2)).map((c) => toItem(c, "movie"));
+      return items.length ? { id: "peliculas2", title: t("moreMovies"), items, genre: "peliculas" } : null;
+    })];
+  } else {
+    rows = await Promise.all(GENRES.slice(0, 6).map((g) => safeRow("genre-" + g.slug, () => rowOf("genre-" + g.slug, listingOf("genre:" + g.slug), "genre:" + g.slug))));
+  }
+  rows = await withArt(rows.filter(Boolean));
+  const answer = { tabs, tab: chosen, rows };
+  const hero = heroOf(rows);
+  if (hero) answer.hero = hero;
+  return answer;
+}
+
+export async function categories() {
+  return GENRES.map((g) => ({ id: "g-" + g.slug, title: g.title, ref: "genre:" + g.slug }));
+}
+
+/** A movie's own page: its synopsis, genres, year and length from the site, the background and score from TMDB. */
+export async function details(ref) {
+  const m = /^[dm]:([a-z0-9-]+)$/i.exec(String(ref || ""));
+  if (!m) return null;
+  const html = await getPage(`${SITE}/dorama/${m[1]}`);
+  const show = parseShow(html);
+  const facts = parseFacts(html);
+  const name = show.title.replace(/\s+(latino|castellano)$/i, "").trim() || show.title;
+  const art = await showArt(name);
+  const out = { overview: show.overview || art.overview, genres: show.genres.length ? show.genres : undefined, year: facts.year || art.year, runtimeMinutes: facts.minutes, rating: art.rating, backdrop: art.backdrop || show.backdrop, poster: art.poster || show.poster };
+  for (const k of Object.keys(out)) if (out[k] === undefined || out[k] === "") delete out[k];
+  return out;
+}
+
+// ---- Ajustes ▸ DoramasYT ----
+
+export async function settingsStatus() {
+  let n = 0;
+  try { n = kino.storage.keys().filter((k) => k.startsWith("art2:")).length; } catch (_) { /* no storage */ }
+  return { info: t("statusLine").replace("{n}", String(n)) };
+}
+
+export async function action(key) {
+  if (key === "clearCache") {
+    try { for (const k of kino.storage.keys()) if (k.startsWith("art2:") || k.startsWith("c:")) kino.storage.remove(k); } catch (_) { /* nothing to clear */ }
+    return { message: t("cacheCleared") };
+  }
+  return { message: "" };
 }
 
 /** A show's episodes: the page, then the caplist POST with the page's own csrf token (and cookies). */

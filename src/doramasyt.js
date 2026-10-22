@@ -77,3 +77,44 @@ export function parseIframe(html) {
   const src = (/<iframe\b[^>]*\bsrc="([^"]+)"/i.exec(String(html || "")) || [])[1];
   return src ? decode(src) : null;
 }
+
+/** The twelve genres the site lists (`/genero/<slug>`), in the order of its menu. */
+export const GENRES = [
+  { slug: "k-drama", title: "K-Drama" }, { slug: "j-drama", title: "J-Drama" }, { slug: "c-drama", title: "C-Drama" }, { slug: "thai-drama", title: "Thai-Drama" },
+  { slug: "romance", title: "Romance" }, { slug: "comedia", title: "Comedia" }, { slug: "drama", title: "Drama" }, { slug: "accion", title: "Acción" },
+  { slug: "misterio", title: "Misterio" }, { slug: "fantasia", title: "Fantasía" }, { slug: "historico", title: "Histórico" }, { slug: "escolar", title: "Escolar" },
+];
+
+/**
+ * The "Capítulos actualizados" cards of the home page, as the shows they belong to: `{ slug, title, episode, poster }`, one per show
+ * (the newest episode), newest first. A card links to /ver/<base>-episodio-<n>; the show page is /dorama/<base>-sub-espanol.
+ */
+export function parseLatestEpisodes(html) {
+  const out = [];
+  const seen = new Set();
+  for (const m of String(html || "").matchAll(/<li\b[^>]*class="[^"]*\bcol\b[^"]*"[^>]*>([\s\S]*?)<\/li>/g)) {
+    const href = (/<a\b[^>]*\bhref="([^"]+)"/.exec(m[1]) || [])[1] || "";
+    const ep = /\/ver\/([a-z0-9-]+)-episodio-(\d+)\/?(?:[?#].*)?$/i.exec(href);
+    if (!ep) continue;
+    const slug = ep[1] + "-sub-espanol";
+    if (seen.has(slug)) continue;
+    seen.add(slug);
+    const raw = strip((/<h3[^>]*>([\s\S]*?)<\/h3>/.exec(m[1]) || [])[1]);
+    const title = raw.replace(/^Ver\s+/i, "").replace(/\s+Cap[ií]tulo\s+\d+\s*$/i, "").trim();
+    if (!title) continue;
+    const img = (/<img\b[^>]*\bdata-src="([^"]+)"/.exec(m[1]) || [])[1];
+    out.push({ slug, title, episode: Number(ep[2]), poster: img && !/capblank/.test(img) ? new URL(decode(img), SITE + "/").href : undefined });
+  }
+  return out;
+}
+
+/** Facts of a show's page: `{ type, aired, year, minutes }` from its `<dt>…</dt><dd>…</dd>` pairs. */
+export function parseFacts(html) {
+  const facts = {};
+  for (const m of String(html || "").matchAll(/<dt[^>]*>\s*([^<:]+):?\s*<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/g)) facts[strip(m[1]).toLowerCase()] = strip(m[2]);
+  const year = (/\b((?:19|20)\d{2})\b/.exec(facts["fecha de emisión"] || facts["fecha de emision"] || "") || [])[1];
+  const d = facts["duración"] || facts["duracion"] || "";
+  const hours = Number((/(\d+)\s*h/i.exec(d) || [])[1] || 0);
+  const mins = Number((/(\d+)\s*min/i.exec(d) || [])[1] || 0);
+  return { type: facts["tipo"], year, minutes: hours * 60 + mins || undefined };
+}

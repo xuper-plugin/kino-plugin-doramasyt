@@ -12,6 +12,7 @@ let pages = {};
 let logs = [];
 let store = new Map();
 let lang = "es";
+let cfg = {};
 const reply = (p) => {
   const status = p?.status ?? (p ? 200 : 404);
   const body = typeof p === "function" ? "" : (p?.body ?? "");
@@ -19,7 +20,7 @@ const reply = (p) => {
 };
 globalThis.kino = {
   get lang() { return lang; },
-  config: { get: () => undefined },
+  config: { get: (k) => cfg[k] },
   fetch: async (url, opts = {}) => {
     calls.push({ url, opts });
     const p = pages[url];
@@ -35,7 +36,7 @@ const { addressOf } = await import("../src/extractors/streamtape.js");
 const { extractorFor } = await import("../src/extractors/index.js");
 const { makeReq } = await import("../src/util/http.js");
 
-beforeEach(() => { calls.length = 0; pages = {}; logs = []; store = new Map(); lang = "es"; });
+beforeEach(() => { calls.length = 0; pages = {}; logs = []; store = new Map(); lang = "es"; cfg = {}; });
 
 const S = "https://www.doramasyt.com";
 const card = (slug, title, img = "https://www.doramasyt.com/thumbs/x.webp") => `<li class="col mb-3"><article><a href="${S}/dorama/${slug}"><div><img class="lazy" src="${S}/img/capblank.png" data-src="${img}"></div><h3 class="h6">${title}</h3></a></article></li>`;
@@ -320,4 +321,105 @@ test("art: a Spanish title found at once as an Asian original costs one call", a
   pages[S + "/doramas"] = { body: `<ul>${card("x-sub-espanol", "Mi Dorama")}</ul>` };
   await plugin.browse("list:doramas", null);
   assert.equal(tmdbCalls.length, 1);
+});
+
+// ---- the plugin's own section, categories, details and settings ----
+
+const LATEST = (n) => `<ul>${Array.from({ length: n }, (_, i) => `<li class="col"><article><a href="${S}/ver/show-${i}-latino-episodio-${10 + i}"><img data-src="${S}/thumbs/e${i}.webp"><h3>Ver Show ${i} Latino Capítulo ${10 + i}</h3></a></article></li>`).join("")}</ul>`;
+const installLists = () => {
+  for (const p of ["/emision", "/doramas", "/doramas?categoria=pelicula", "/doramas?page=2", "/doramas?categoria=pelicula&page=2"]) pages[S + p] = { body: LISTING };
+  pages[S + "/"] = { body: LATEST(2) };
+};
+
+test("home: the new-episodes row appears only when at least three shows have one; one row per listing besides", async () => {
+  installLists();
+  assert.deepEqual((await plugin.home()).map((r) => r.id), ["emision", "doramas", "peliculas"]);
+  store = new Map();
+  pages[S + "/"] = { body: LATEST(4) };
+  const rows = await plugin.home();
+  assert.deepEqual(rows.map((r) => r.id), ["nuevos", "emision", "doramas", "peliculas"]);
+  assert.equal(rows[0].title, "Capítulos nuevos");
+  assert.equal(rows[0].items[0].ref, "d:show-0-latino-sub-espanol");
+  assert.ok(rows[0].items[0].badges.includes("Cap. 10") && rows[0].items[0].badges.includes("Latino"));
+  assert.equal(rows[0].ref, undefined, "a row of cards from one page has no Ver más");
+});
+
+test("section: four tabs, an unknown tab is the first one, every row has items, the hero names the first title and borrows its TMDB art", async () => {
+  installLists();
+  withTmdb((path, params) => hit(params.query, { overview: "Una historia de ejemplo", backdrop_path: "/fondo.jpg" }));
+  const first = await plugin.section({ tab: null });
+  assert.deepEqual(first.tabs.map((x) => x.id), ["novedades", "doramas", "peliculas", "generos"]);
+  assert.equal(first.tab, "novedades");
+  assert.equal((await plugin.section({ tab: "nope" })).tab, "novedades");
+  assert.ok(first.rows.length >= 1 && first.rows.every((r) => r.items.length));
+  assert.equal(first.hero.title, first.rows[0].items[0].title);
+  assert.equal(first.hero.image, "https://image.tmdb.org/t/p/w780/fondo.jpg");
+  assert.equal(first.hero.text, "Una historia de ejemplo");
+  const dramas = await plugin.section({ tab: "doramas" });
+  assert.deepEqual(dramas.rows.map((r) => r.title), ["Doramas", "Más doramas"]);
+  assert.equal(dramas.rows[0].ref, "list:doramas");
+  assert.equal((await plugin.section({ tab: "peliculas" })).rows[0].items[0].kind, "movie");
+});
+
+test("section: the genres tab has a row per genre with its own Ver más, and a hero with no art still has a line of text", async () => {
+  noTmdb();
+  for (const g of ["k-drama", "j-drama", "c-drama", "thai-drama", "romance", "comedia"]) pages[`${S}/genero/${g}`] = { body: LISTING };
+  const r = await plugin.section({ tab: "generos" });
+  assert.deepEqual(r.rows.map((x) => x.ref), ["genre:k-drama", "genre:j-drama", "genre:c-drama", "genre:thai-drama", "genre:romance", "genre:comedia"]);
+  assert.equal(r.rows[0].title, "K-Drama");
+  assert.match(r.hero.text, /Doramas en español/);
+  assert.equal(r.hero.image, undefined);
+});
+
+test("categories: the twelve genres of the site, each opening its own paged list", async () => {
+  const c = await plugin.categories();
+  assert.equal(c.length, 12);
+  assert.equal(c[0].ref, "genre:k-drama");
+  assert.ok(c.every((x) => x.title && x.title.length <= 40 && /^g-[a-z-]+$/.test(x.id)));
+  pages[`${S}/genero/romance?page=2`] = { body: LISTING };
+  assert.equal((await plugin.browse("genre:romance", "2")).items.length, 2);
+  assert.deepEqual((await plugin.browse("genre:unknown", null)).items, []);
+});
+
+test("details: a show's synopsis, genres, year and length from its page, the background and score from TMDB", async () => {
+  withTmdb((path, params) => hit(params.query, { vote_average: 7.77 }));
+  pages[`${S}/dorama/${slug}`] = { body: SHOW.replace("</body>", '<dl><dt>Tipo:</dt><dd>Pelicula</dd><dt>Fecha de emisión:</dt><dd>21 de Febrero de 2025</dd><dt>Duración:</dt><dd>1 h 26 min</dd></dl></body>') };
+  const d = await plugin.details("m:" + slug);
+  assert.equal(d.overview, "Una sinopsis larga.");
+  assert.deepEqual(d.genres, ["Romance", "Drama"]);
+  assert.equal(d.year, "2025");
+  assert.equal(d.runtimeMinutes, 86);
+  assert.equal(d.rating, 7.8);
+  assert.equal(d.backdrop, "https://image.tmdb.org/t/p/w780/b.jpg");
+  assert.equal(await plugin.details("zz"), null);
+});
+
+test("settings: only dubbed or only subtitled narrows lists and search; the status line counts the covers kept; the action clears them", async () => {
+  installLists();
+  pages[S + "/buscar?q=kim"] = { body: LISTING };
+  const names = async () => (await plugin.search("kim")).map((i) => i.ref);
+  assert.equal((await names()).length, 2);
+  cfg.audio = "dub";
+  assert.deepEqual(await names(), ["d:secretaria-kim-latino-sub-espanol"]);
+  cfg.audio = "sub";
+  assert.deepEqual(await names(), ["d:moon-lovers-sub-espanol"]);
+  cfg.audio = "all";
+  withTmdb((path, params) => hit(params.query));
+  await plugin.search("kim");
+  assert.match((await plugin.settingsStatus()).info, /Carátulas guardadas: 2/);
+  lang = "en";
+  assert.match((await plugin.settingsStatus()).info, /Covers kept: 2/);
+  lang = "es";
+  assert.equal((await plugin.action("clearCache")).message, "Caché vaciada.");
+  assert.match((await plugin.settingsStatus()).info, /guardadas: 0/);
+  assert.equal(store.size, 0);
+});
+
+test("settings: with the covers switched off no lookup is made and the lists still come", async () => {
+  withTmdb((path, params) => hit(params.query));
+  cfg.covers = false;
+  pages[S + "/emision"] = { body: LISTING };
+  const p = await plugin.browse("list:emision", null);
+  assert.equal(p.items.length, 2);
+  assert.equal(tmdbCalls.length, 0);
 });

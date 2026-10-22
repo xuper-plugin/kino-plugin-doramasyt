@@ -106,6 +106,8 @@ const apply = (item, art) => {
  * a time. A title with no match keeps whatever poster it had. Never throws: the list is shown with or without art.
  */
 export async function addArt(items) {
+  // The person may turn the TMDB covers off (Ajustes ▸ DoramasYT); the site's own images are then all there is.
+  try { if (kino.config.get("covers") === false) return items; } catch (_) { /* no config: covers on */ }
   const todo = [];
   for (const item of items) {
     const hit = cachedArt(item.title);

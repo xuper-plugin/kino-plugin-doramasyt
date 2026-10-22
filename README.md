@@ -16,11 +16,18 @@ xuper-plugin/kino-plugin-doramasyt
 
 ## Qué trae
 
-- **Inicio** con tres filas: *En emisión*, *Doramas* y *Películas* (cada una con «Ver más» y páginas).
-- **Búsqueda** por título y **ficha** con sinopsis, géneros, póster y la lista de capítulos.
-- **Reproducción** con cuatro servidores: Mp4Upload, LuluVdo, StreamTape y MixDrop. Kino abre el mejor y deja los demás en el
-  menú **Servidor**. El sitio ofrece otros (Mega, Filemoon, VOE, DoodStream…) que no se abren desde aquí: necesitan el navegador
-  oculto o piden verificación humana.
+- **Una sección propia** («Doramas», en Inicio en el teléfono y en la barra lateral en la TV) con cuatro pestañas: *Novedades*, *Doramas*,
+  *Películas* y *Géneros*, y un destacado con el fondo y la sinopsis de TMDB.
+- **Inicio** con las filas *En emisión*, *Doramas* y *Películas* (cada una con «Ver más» y páginas), y *Capítulos nuevos* cuando
+  hay al menos tres series con uno.
+- **Categorías**: los doce géneros del sitio (K-Drama, J-Drama, C-Drama, Thai-Drama, Romance, Comedia, Drama, Acción, Misterio,
+  Fantasía, Histórico y Escolar), cada uno con su lista por páginas.
+- **Búsqueda** por título y **ficha** con sinopsis, géneros, póster y la lista de capítulos; las películas tienen ficha propia con año,
+  duración, nota y fondo.
+- **Reproducción** con cuatro servidores: Mp4Upload, LuluVdo, StreamTape y MixDrop. Kino abre el mejor y deja los demás en el menú
+  **Servidor**. El sitio ofrece otros (Mega, Filemoon, VOE, DoodStream…) que no se abren desde aquí: necesitan el navegador oculto o
+  piden verificación humana. También se puede **descargar**.
+- **Ajustes ▸ DoramasYT**: mostrar todo, solo doblados (latino o castellano) o solo subtitulados; apagar las carátulas de TMDB; vaciar la caché.
 - Si el título tiene «Latino» o «Castellano» en su nombre en el sitio, la copia se marca así; si no, «Subtitulado».
 
 ## Carátulas

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+- Uses more of Kino's plugin API: a **section of its own** ("Doramas", with four tabs -- novedades, doramas, películas, géneros -- and a
+  hero that borrows TMDB's background and synopsis), **categories** (the site's twelve genres, each a paged list), a **page of its
+  own for a movie** (`details`: synopsis, genres, year, length, score and background), a **settings form** (show only dubbed or only
+  subtitled titles, switch the TMDB covers off, clear the cache), a violet **theme**, the **download** capability, and a "Capítulos
+  nuevos" row when at least three shows have a new episode. Needs Kino 0.9.55 (apiVersion 9).
+  / Aprovecha más la API de Kino: sección propia con cuatro pestañas y héroe, categorías por género, ficha propia de las películas,
+  ajustes (solo doblados o subtitulados, carátulas de TMDB, vaciar caché), tema violeta, descargas y fila de capítulos nuevos.
+
 ## 0.1.4
 
 - Fix: the English title of a Korean drama no longer takes the cover of a remake that shares the name (TMDB names the original in Spanish); an Asian original near the top of the results wins over an exact name from another country.

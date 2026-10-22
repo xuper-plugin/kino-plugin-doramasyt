@@ -67,6 +67,47 @@ function parseIframe(html) {
   const src = (/<iframe\b[^>]*\bsrc="([^"]+)"/i.exec(String(html || "")) || [])[1];
   return src ? decode(src) : null;
 }
+var GENRES = [
+  { slug: "k-drama", title: "K-Drama" },
+  { slug: "j-drama", title: "J-Drama" },
+  { slug: "c-drama", title: "C-Drama" },
+  { slug: "thai-drama", title: "Thai-Drama" },
+  { slug: "romance", title: "Romance" },
+  { slug: "comedia", title: "Comedia" },
+  { slug: "drama", title: "Drama" },
+  { slug: "accion", title: "Acci\xF3n" },
+  { slug: "misterio", title: "Misterio" },
+  { slug: "fantasia", title: "Fantas\xEDa" },
+  { slug: "historico", title: "Hist\xF3rico" },
+  { slug: "escolar", title: "Escolar" }
+];
+function parseLatestEpisodes(html) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const m of String(html || "").matchAll(/<li\b[^>]*class="[^"]*\bcol\b[^"]*"[^>]*>([\s\S]*?)<\/li>/g)) {
+    const href = (/<a\b[^>]*\bhref="([^"]+)"/.exec(m[1]) || [])[1] || "";
+    const ep = /\/ver\/([a-z0-9-]+)-episodio-(\d+)\/?(?:[?#].*)?$/i.exec(href);
+    if (!ep) continue;
+    const slug = ep[1] + "-sub-espanol";
+    if (seen.has(slug)) continue;
+    seen.add(slug);
+    const raw = strip((/<h3[^>]*>([\s\S]*?)<\/h3>/.exec(m[1]) || [])[1]);
+    const title = raw.replace(/^Ver\s+/i, "").replace(/\s+Cap[ií]tulo\s+\d+\s*$/i, "").trim();
+    if (!title) continue;
+    const img = (/<img\b[^>]*\bdata-src="([^"]+)"/.exec(m[1]) || [])[1];
+    out.push({ slug, title, episode: Number(ep[2]), poster: img && !/capblank/.test(img) ? new URL(decode(img), SITE + "/").href : void 0 });
+  }
+  return out;
+}
+function parseFacts(html) {
+  const facts = {};
+  for (const m of String(html || "").matchAll(/<dt[^>]*>\s*([^<:]+):?\s*<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/g)) facts[strip(m[1]).toLowerCase()] = strip(m[2]);
+  const year = (/\b((?:19|20)\d{2})\b/.exec(facts["fecha de emisi\xF3n"] || facts["fecha de emision"] || "") || [])[1];
+  const d = facts["duraci\xF3n"] || facts["duracion"] || "";
+  const hours = Number((/(\d+)\s*h/i.exec(d) || [])[1] || 0);
+  const mins = Number((/(\d+)\s*min/i.exec(d) || [])[1] || 0);
+  return { type: facts["tipo"], year, minutes: hours * 60 + mins || void 0 };
+}
 
 // src/extractors/mp4upload.js
 var mp4upload_exports = {};
@@ -341,6 +382,10 @@ var apply = (item, art) => {
   if (art.rating && !item.rating) item.rating = art.rating;
 };
 async function addArt(items) {
+  try {
+    if (kino.config.get("covers") === false) return items;
+  } catch (_) {
+  }
   const todo = [];
   for (const item of items) {
     const hit = cachedArt(item.title);
@@ -393,6 +438,15 @@ var STRINGS = {
     onAir: "En emisi\xF3n",
     dramas: "Doramas",
     movies: "Pel\xEDculas",
+    news: "Novedades",
+    genres: "G\xE9neros",
+    newEpisodes: "Cap\xEDtulos nuevos",
+    more: "M\xE1s doramas",
+    moreMovies: "M\xE1s pel\xEDculas",
+    episodeShort: "Cap.",
+    heroText: "Doramas en espa\xF1ol, con cap\xEDtulos nuevos cada semana.",
+    statusLine: "Car\xE1tulas guardadas: {n}",
+    cacheCleared: "Cach\xE9 vaciada.",
     lat: "Latino",
     esp: "Castellano",
     sub: "Subtitulado",
@@ -406,6 +460,15 @@ var STRINGS = {
     onAir: "On air",
     dramas: "Dramas",
     movies: "Movies",
+    news: "What's new",
+    genres: "Genres",
+    newEpisodes: "New episodes",
+    more: "More dramas",
+    moreMovies: "More movies",
+    episodeShort: "Ep.",
+    heroText: "Dramas in Spanish, with new episodes every week.",
+    statusLine: "Covers kept: {n}",
+    cacheCleared: "Cache cleared.",
     lat: "Latino",
     esp: "Castilian",
     sub: "Subtitled",
@@ -460,36 +523,72 @@ var LISTINGS = {
   doramas: { path: "/doramas", titleKey: "dramas", kind: "series" },
   peliculas: { path: "/doramas?categoria=pelicula", titleKey: "movies", kind: "movie" }
 };
-async function listing(name, page) {
-  const def = LISTINGS[name];
+function listingOf(ref) {
+  const m = /^(list|genre):([a-z0-9-]+)$/.exec(String(ref || ""));
+  if (!m) return null;
+  if (m[1] === "list") return LISTINGS[m[2]] ? { ...LISTINGS[m[2]], name: m[2] } : null;
+  const g = GENRES.find((x) => x.slug === m[2]);
+  return g ? { path: "/genero/" + g.slug, title: g.title, kind: "series", name: "genre-" + g.slug } : null;
+}
+function audioChoice() {
+  try {
+    const v = kino.config.get("audio");
+    return v === "dub" || v === "sub" ? v : "all";
+  } catch (_) {
+    return "all";
+  }
+}
+var byAudio = (cards) => {
+  const a = audioChoice();
+  if (a === "all") return cards;
+  return cards.filter((c) => langOf(c.title) !== "sub" === (a === "dub"));
+};
+async function listing(def, page) {
   const url = SITE + def.path + (page > 1 ? (def.path.includes("?") ? "&" : "?") + "page=" + page : "");
-  return cached(`${name}:${page}`, async () => parseCards(await getPage(url)));
+  return cached(`${def.name}:${page}`, async () => parseCards(await getPage(url)));
+}
+async function rowOf(id, def, ref) {
+  const cards = byAudio(await listing(def, 1));
+  const items = cards.slice(0, 20).map((c) => toItem(c, def.kind));
+  return items.length ? { id, title: def.title || t(def.titleKey), items, ref, genre: def.kind === "movie" ? "peliculas" : "series" } : null;
+}
+async function newEpisodesRow() {
+  const cards = await cached("latest", async () => parseLatestEpisodes(await getPage(SITE + "/")));
+  const shown = byAudio(cards.map((c) => ({ ...c })));
+  const items = shown.slice(0, 20).map((c) => {
+    const it = toItem(c, "series");
+    it.badges = [`${t("episodeShort")} ${c.episode}`, ...it.badges || []];
+    return it;
+  });
+  return items.length >= 3 ? { id: "nuevos", title: t("newEpisodes"), items, genre: "series" } : null;
+}
+var safeRow = async (id, fn) => {
+  try {
+    return await fn();
+  } catch (e) {
+    kino.log("row " + id + ": " + (e && e.message));
+    return null;
+  }
+};
+async function withArt(rows) {
+  const order = [];
+  for (let i = 0; i < 20; i++) for (const row of rows) if (row.items[i]) order.push(row.items[i]);
+  await addArt(order);
+  return rows;
 }
 async function home() {
-  const names = Object.keys(LISTINGS);
-  const rows = await Promise.all(names.map(async (name) => {
-    try {
-      const cards = await listing(name, 1);
-      const def = LISTINGS[name];
-      const items = cards.slice(0, 20).map((c) => toItem(c, def.kind));
-      return items.length ? { id: name, title: t(def.titleKey), items, ref: "list:" + name, genre: def.kind === "movie" ? "peliculas" : "series" } : null;
-    } catch (e) {
-      kino.log("home row " + name + ": " + (e && e.message));
-      return null;
-    }
-  }));
-  const shown = rows.filter(Boolean);
-  const order = [];
-  for (let i = 0; i < 20; i++) for (const row of shown) if (row.items[i]) order.push(row.items[i]);
-  await addArt(order);
-  return shown;
+  const rows = (await Promise.all([
+    safeRow("nuevos", newEpisodesRow),
+    ...Object.keys(LISTINGS).map((name) => safeRow(name, () => rowOf(name, listingOf("list:" + name), "list:" + name)))
+  ])).filter(Boolean);
+  return withArt(rows);
 }
 async function browse(ref, cursor) {
-  const m = /^list:(emision|doramas|peliculas)$/.exec(String(ref || ""));
-  if (!m) return { items: [] };
+  const def = listingOf(ref);
+  if (!def) return { items: [] };
   const page = cursor ? Math.max(1, parseInt(cursor, 10) || 1) : 1;
-  const cards = await listing(m[1], page);
-  const items = cards.map((c) => toItem(c, LISTINGS[m[1]].kind));
+  const cards = await listing(def, page);
+  const items = byAudio(cards).map((c) => toItem(c, def.kind));
   await addArt(items);
   return { items, next: cards.length >= 24 ? String(page + 1) : void 0 };
 }
@@ -497,7 +596,81 @@ async function search(arg) {
   const q = String(typeof arg === "string" ? arg : arg && arg.q || "").trim();
   if (q.length < 2) return [];
   const cards = await cached("s:" + q.toLowerCase(), async () => parseCards(await getPage(`${SITE}/buscar?q=${encodeURIComponent(q)}`)));
-  return addArt(cards.slice(0, 40).map((c) => toItem(c, "series")));
+  return addArt(byAudio(cards).slice(0, 40).map((c) => toItem(c, "series")));
+}
+var SECTION_TABS = () => [
+  { id: "novedades", label: t("news") },
+  { id: "doramas", label: t("dramas") },
+  { id: "peliculas", label: t("movies") },
+  { id: "generos", label: t("genres") }
+];
+function heroOf(rows) {
+  const first = rows.flatMap((r) => r.items)[0];
+  if (!first) return void 0;
+  const art = cachedArt(first.title) || {};
+  const hero = { title: first.title, text: String(art.overview || t("heroText")).slice(0, 300) };
+  if (art.backdrop) hero.image = art.backdrop;
+  return hero;
+}
+async function section({ tab } = {}) {
+  const tabs = SECTION_TABS();
+  const chosen = tabs.some((x) => x.id === tab) ? tab : "novedades";
+  let rows = [];
+  if (chosen === "novedades") {
+    rows = [await safeRow("nuevos", newEpisodesRow), await safeRow("emision", () => rowOf("emision", listingOf("list:emision"), "list:emision"))];
+  } else if (chosen === "doramas") {
+    const d = listingOf("list:doramas");
+    rows = [await safeRow("doramas", () => rowOf("doramas", d, "list:doramas")), await safeRow("doramas2", async () => {
+      const items = byAudio(await listing(d, 2)).map((c) => toItem(c, "series"));
+      return items.length ? { id: "doramas2", title: t("more"), items, genre: "series" } : null;
+    })];
+  } else if (chosen === "peliculas") {
+    const d = listingOf("list:peliculas");
+    rows = [await safeRow("peliculas", () => rowOf("peliculas", d, "list:peliculas")), await safeRow("peliculas2", async () => {
+      const items = byAudio(await listing(d, 2)).map((c) => toItem(c, "movie"));
+      return items.length ? { id: "peliculas2", title: t("moreMovies"), items, genre: "peliculas" } : null;
+    })];
+  } else {
+    rows = await Promise.all(GENRES.slice(0, 6).map((g) => safeRow("genre-" + g.slug, () => rowOf("genre-" + g.slug, listingOf("genre:" + g.slug), "genre:" + g.slug))));
+  }
+  rows = await withArt(rows.filter(Boolean));
+  const answer = { tabs, tab: chosen, rows };
+  const hero = heroOf(rows);
+  if (hero) answer.hero = hero;
+  return answer;
+}
+async function categories() {
+  return GENRES.map((g) => ({ id: "g-" + g.slug, title: g.title, ref: "genre:" + g.slug }));
+}
+async function details(ref) {
+  const m = /^[dm]:([a-z0-9-]+)$/i.exec(String(ref || ""));
+  if (!m) return null;
+  const html = await getPage(`${SITE}/dorama/${m[1]}`);
+  const show = parseShow(html);
+  const facts = parseFacts(html);
+  const name = show.title.replace(/\s+(latino|castellano)$/i, "").trim() || show.title;
+  const art = await showArt(name);
+  const out = { overview: show.overview || art.overview, genres: show.genres.length ? show.genres : void 0, year: facts.year || art.year, runtimeMinutes: facts.minutes, rating: art.rating, backdrop: art.backdrop || show.backdrop, poster: art.poster || show.poster };
+  for (const k of Object.keys(out)) if (out[k] === void 0 || out[k] === "") delete out[k];
+  return out;
+}
+async function settingsStatus() {
+  let n = 0;
+  try {
+    n = kino.storage.keys().filter((k) => k.startsWith("art2:")).length;
+  } catch (_) {
+  }
+  return { info: t("statusLine").replace("{n}", String(n)) };
+}
+async function action(key) {
+  if (key === "clearCache") {
+    try {
+      for (const k of kino.storage.keys()) if (k.startsWith("art2:") || k.startsWith("c:")) kino.storage.remove(k);
+    } catch (_) {
+    }
+    return { message: t("cacheCleared") };
+  }
+  return { message: "" };
 }
 async function showEpisodes(slug) {
   const url = `${SITE}/dorama/${slug}`;
@@ -601,9 +774,14 @@ async function resolve(ref) {
   throw kino.error("not_found", "no player opened for " + pageUrl, { userMessage: t("noStreams") });
 }
 export {
+  action,
   browse,
+  categories,
+  details,
   episodes,
   home,
   resolve,
-  search
+  search,
+  section,
+  settingsStatus
 };
