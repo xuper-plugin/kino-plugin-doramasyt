@@ -1,0 +1,481 @@
+var __defProp = Object.defineProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// src/doramasyt.js
+var SITE = "https://www.doramasyt.com";
+var decode = (s) => String(s || "").replace(/&amp;/g, "&").replace(/&#0?39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).trim();
+var strip = (s) => decode(String(s || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " "));
+var slugOf = (href) => (/\/dorama\/([a-z0-9-]+)\/?(?:[?#].*)?$/i.exec(String(href || "")) || [])[1] || null;
+var baseOf = (slug) => String(slug || "").replace(/-sub-espanol$/, "");
+var watchUrl = (slug, n) => `${SITE}/ver/${baseOf(slug)}-episodio-${Number(n)}`;
+var langOf = (text2) => /\blatino\b/i.test(text2) ? "lat" : /\bcastellano\b/i.test(text2) ? "esp" : "sub";
+function parseCards(html) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const m of String(html || "").matchAll(/<li\b[^>]*class="[^"]*\bcol\b[^"]*"[^>]*>([\s\S]*?)<\/li>/g)) {
+    const slug = slugOf((/<a\b[^>]*\bhref="([^"]+)"/.exec(m[1]) || [])[1]);
+    const title = strip((/<h3[^>]*>([\s\S]*?)<\/h3>/.exec(m[1]) || [])[1]);
+    if (!slug || !title || seen.has(slug)) continue;
+    const img = (/<img\b[^>]*\bdata-src="([^"]+)"/.exec(m[1]) || /<img\b[^>]*\bsrc="([^"]+)"/.exec(m[1]) || [])[1];
+    seen.add(slug);
+    out.push({ slug, title, poster: img && !/capblank/.test(img) ? new URL(decode(img), SITE + "/").href : void 0 });
+  }
+  return out;
+}
+function parseShow(html) {
+  const s = String(html || "");
+  const grab = (re) => strip((re.exec(s) || [])[1]);
+  const imgs = [...s.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]).map((tag) => ({ cls: (/\bclass="([^"]*)"/.exec(tag) || [])[1] || "", src: (/\bdata-src="([^"]+)"/.exec(tag) || /\bsrc="([^"]+)"/.exec(tag) || [])[1] }));
+  const poster = (imgs.find((i) => /\brounded-3\b/.test(i.cls) && i.src) || {}).src;
+  const backdrop = (imgs.find((i) => /\bw-100\b/.test(i.cls) && !/\brounded-3\b/.test(i.cls) && i.src && !/capblank/.test(i.src)) || {}).src;
+  const abs = (u) => u && !/capblank/.test(u) ? new URL(decode(u), SITE + "/").href : void 0;
+  const genres = [...s.matchAll(/<a\b[^>]*\bhref="[^"]*\/genero\/[^"]*"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g)].map((m) => decode(m[1])).filter(Boolean);
+  return {
+    title: grab(/class="[^"]*\bfs-2\b[^"]*"[^>]*>([\s\S]*?)<\//),
+    overview: grab(/<div class="[^"]*\bmb-3\b[^"]*"[^>]*>([\s\S]*?)<\/div>/).replace(/\s*Ver menos\s*$/i, ""),
+    poster: abs(poster),
+    backdrop: abs(backdrop),
+    genres: [...new Set(genres)].slice(0, 6),
+    ajax: decode((/\bdata-ajax="([^"]+)"/.exec(s) || [])[1] || ""),
+    token: (/<meta\s+name="csrf-token"\s+content="([^"]+)"/.exec(s) || /<meta\s+content="([^"]+)"\s+name="csrf-token"/.exec(s) || [])[1] || ""
+  };
+}
+function parseEpisodeNumbers(json) {
+  let o = json;
+  if (typeof json === "string") {
+    try {
+      o = JSON.parse(json);
+    } catch (_) {
+      return [];
+    }
+  }
+  const nums = (o && Array.isArray(o.eps) ? o.eps : []).map((e) => Number(e && e.num)).filter((n) => Number.isFinite(n) && n >= 0);
+  return [...new Set(nums)].sort((a, b) => a - b);
+}
+function parsePlayers(html) {
+  const out = [];
+  for (const m of String(html || "").matchAll(/<button\b[^>]*\bclass="[^"]*\bplay-video\b[^"]*"[^>]*\bdata-player="([^"]+)"[^>]*>([\s\S]*?)<\/button>/g)) {
+    const name = strip(m[2]);
+    if (name && m[1]) out.push({ name, value: decode(m[1]) });
+  }
+  return out;
+}
+function parseIframe(html) {
+  const src = (/<iframe\b[^>]*\bsrc="([^"]+)"/i.exec(String(html || "")) || [])[1];
+  return src ? decode(src) : null;
+}
+
+// src/extractors/mp4upload.js
+var mp4upload_exports = {};
+__export(mp4upload_exports, {
+  HOSTS: () => HOSTS,
+  extract: () => extract
+});
+
+// src/util/unpack.js
+var ALPHA = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+var toNum = (s, radix) => [...s].reduce((n, ch) => n * radix + ALPHA.indexOf(ch), 0);
+function unpack(source) {
+  const m = /}\s*\(\s*'((?:\\'|[^'])*)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'((?:\\'|[^'])*)'\.split\('\|'\)/.exec(source || "");
+  if (!m) return null;
+  const payload = m[1].replace(/\\'/g, "'");
+  const radix = Number(m[2]);
+  const keys = m[4].split("|");
+  if (radix < 2 || radix > 62) return null;
+  return payload.replace(/\b[0-9a-zA-Z]+\b/g, (w) => {
+    const i = toNum(w, radix);
+    return Number.isInteger(i) && i >= 0 && keys[i] ? keys[i] : w;
+  });
+}
+
+// src/extractors/shared.js
+var HLS_MIME = "application/vnd.apple.mpegurl";
+function fileM3u8(text2, base) {
+  const m = /\bfile\s*:\s*["']([^"']+\.m3u8[^"']*)["']/.exec(text2 || "");
+  return m ? absolute(m[1], base) : null;
+}
+function absolute(href, base) {
+  try {
+    return new URL(href, base).href;
+  } catch (_) {
+    return null;
+  }
+}
+function findIn(html, pick) {
+  return pick(html) || pick(unpack(html) || "") || null;
+}
+function miss(kino2, server, reason) {
+  if (kino2 && typeof kino2.log === "function") kino2.log("[doramasyt]", server, reason);
+  return null;
+}
+async function pageText(req, url, headers, kino2, server) {
+  const r = await req(url, { headers });
+  return r.ok ? r.text() : miss(kino2, server || "embed", "status " + r.status);
+}
+var LANG_CODES = [
+  [/^(español|espanol|spanish|castellano|latino|spa|esp?)\b/i, "es"],
+  [/^(english|inglés|ingles|eng?)\b/i, "en"],
+  [/^(portugu[eê]s|portuguese|pt)\b/i, "pt"],
+  // never a bare "por": "Por defecto" is not Portuguese
+  [/^(fran[cç]ais|french|franc[eé]s|fre|fra|fr)\b/i, "fr"],
+  [/^(italiano|italian|ita|it)\b/i, "it"],
+  [/^(deutsch|german|alem[aá]n|ger|deu|de)\b/i, "de"]
+];
+function langCode(label) {
+  const s = String(label || "").trim();
+  for (const [re, code] of LANG_CODES) if (re.test(s)) return code;
+  return null;
+}
+function captionTracks(text2, base) {
+  const m = /["']?\btracks["']?\s*:\s*\[([\s\S]*?)\]/.exec(text2 || "");
+  if (!m) return [];
+  const out = [];
+  for (const [obj] of m[1].matchAll(/\{[^{}]*\}/g)) {
+    const field = (k) => (new RegExp(`["']?${k}["']?\\s*:\\s*["']([^"']*)["']`).exec(obj) || [])[1] || "";
+    const kind = field("kind").toLowerCase();
+    if (kind && kind !== "captions" && kind !== "subtitles") continue;
+    const file = field("file");
+    const format = (/\.(vtt|srt)(?:[?#]|$)/i.exec(file) || [])[1];
+    const label = field("label");
+    const lang = langCode(label);
+    const url = format && lang ? absolute(file, base) : null;
+    if (!url || out.some((t2) => t2.url === url)) continue;
+    out.push({ lang, url, label, format: format.toLowerCase() });
+  }
+  return out;
+}
+function durationMsOf(text2) {
+  const re = /(?<![-\w])duration["']?\s*:\s*["']?(\d+(?:\.\d+)?)(?![\d.])(?!\s*m?s\b)/g;
+  for (const m of String(text2 || "").matchAll(re)) {
+    const ms = Math.round(Number(m[1]) * 1e3);
+    if (ms >= 6e4) return ms;
+  }
+  return null;
+}
+function pageExtras(html, base) {
+  const unpacked = unpack(html) || "";
+  const subs = captionTracks(html, base);
+  const subtitles = subs.length ? subs : captionTracks(unpacked, base);
+  const durationMs = durationMsOf(html) || durationMsOf(unpacked);
+  return { ...subtitles.length ? { subtitles } : {}, ...durationMs ? { durationMs } : {} };
+}
+
+// src/extractors/mp4upload.js
+var HOSTS = ["mp4upload.com"];
+async function extract(embedUrl, req, kino2) {
+  const html = await pageText(req, embedUrl, { Referer: "https://www.mp4upload.com/" }, kino2, "mp4upload");
+  if (html == null) return null;
+  const m = /player\.src\(\s*\{[^}]*?\bsrc\s*:\s*["']([^"']+)["']/.exec(html) || /\bsrc\s*:\s*["'](https?:\/\/[^"']+\.mp4[^"']*)["']/.exec(html);
+  const url = m && absolute(m[1], embedUrl);
+  if (!url) return miss(kino2, "mp4upload", "no file in page");
+  return { url, mime: "video/mp4", headers: { Referer: new URL(embedUrl).origin + "/" } };
+}
+
+// src/extractors/luluvdo.js
+var luluvdo_exports = {};
+__export(luluvdo_exports, {
+  HOSTS: () => HOSTS2,
+  extract: () => extract2
+});
+var HOSTS2 = ["luluvdo.com", "lulustream.com"];
+async function extract2(embedUrl, req, kino2) {
+  const html = await pageText(req, embedUrl, { Referer: "https://www.doramasyt.com/" }, kino2, "luluvdo");
+  if (html == null) return null;
+  const url = findIn(html, (t2) => fileM3u8(t2, embedUrl));
+  if (!url) return miss(kino2, "luluvdo", "no playlist in page");
+  return { url, mime: HLS_MIME, headers: { Referer: new URL(embedUrl).origin + "/" }, ...pageExtras(html, embedUrl) };
+}
+
+// src/extractors/mixdrop.js
+var mixdrop_exports = {};
+__export(mixdrop_exports, {
+  HOSTS: () => HOSTS3,
+  extract: () => extract3
+});
+var HOSTS3 = ["mxdrop.click", "mixdrop.top", "mixdrop.to", "mixdrop.co", "mixdrop.ag", "mixdrop.ch", "mixdrop.ps", "mixdrop.sx", "mixdrop.bz", "mxdrop.to"];
+async function extract3(embedUrl, req, kino2) {
+  const html = await pageText(req, embedUrl, { Referer: "https://www.doramasyt.com/" }, kino2, "mixdrop");
+  if (html == null) return null;
+  const raw = findIn(html, (t2) => (/MDCore\.wurl\s*=\s*["']([^"']+)["']/.exec(t2) || [])[1]);
+  const url = raw && absolute(raw.startsWith("//") ? "https:" + raw : raw, embedUrl);
+  if (!url) return miss(kino2, "mixdrop", "no file in page");
+  return { url, mime: "video/mp4", headers: { Referer: new URL(embedUrl).origin + "/" } };
+}
+
+// src/extractors/streamtape.js
+var streamtape_exports = {};
+__export(streamtape_exports, {
+  HOSTS: () => HOSTS4,
+  addressOf: () => addressOf,
+  extract: () => extract4
+});
+var HOSTS4 = ["streamtape.com", "streamtape.to", "streamtape.net", "streamta.pe", "strtape.cloud", "strcloud.link", "stape.fun", "streamadblocker.xyz"];
+var LINE = /getElementById\(\s*['"](robotlink|norobotlink|ideoolink|botlink)['"]\s*\)\.innerHTML\s*=\s*(["'])([^"']*)\2\s*\+\s*(?:''\s*\+\s*)?\(\s*(["'])([^"']*)\4\s*\)((?:\s*\.substring\(\s*\d+\s*\))+)/g;
+function addressOf(html) {
+  const found = [];
+  for (const m of String(html || "").matchAll(LINE)) {
+    let tail = m[5];
+    for (const [, n] of m[6].matchAll(/\.substring\(\s*(\d+)\s*\)/g)) tail = tail.substring(Number(n));
+    found.push({ id: m[1], url: m[3] + tail });
+  }
+  const pick = found.filter((f) => /get_video\?/.test(f.url) && /token=/.test(f.url));
+  const best = pick.find((f) => f.id === "robotlink") || pick.find((f) => f.id === "norobotlink") || pick[pick.length - 1];
+  return best ? best.url.startsWith("//") ? "https:" + best.url : best.url : null;
+}
+async function extract4(embedUrl, req, kino2) {
+  const html = await pageText(req, embedUrl, { Referer: "https://www.doramasyt.com/" }, kino2, "streamtape");
+  if (html == null) return null;
+  const url = addressOf(html);
+  if (!url) return miss(kino2, "streamtape", "no address in page");
+  return { url, mime: "video/mp4", headers: { Referer: new URL(embedUrl).origin + "/" } };
+}
+
+// src/extractors/index.js
+var TABLE = { mp4upload: mp4upload_exports, luluvdo: luluvdo_exports, mixdrop: mixdrop_exports, streamtape: streamtape_exports };
+function extractorFor(embedUrl) {
+  let host;
+  try {
+    host = new URL(embedUrl).hostname.replace(/^www\./, "");
+  } catch (_) {
+    return null;
+  }
+  for (const [name, mod] of Object.entries(TABLE)) {
+    if (mod.HOSTS.some((h) => host === h || host.endsWith("." + h))) return { name, extract: mod.extract };
+  }
+  return null;
+}
+var HOSTS5 = Object.values(TABLE).flatMap((m) => m.HOSTS);
+
+// src/util/http.js
+var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+var REQUEST_MS = 8e3;
+var MIN_MS = 1500;
+function makeReq(kino2, { deadline }) {
+  const req = async (url, opts = {}) => {
+    const left = deadline - Date.now();
+    if (left < MIN_MS) throw kino2.error("timeout", "no time left for " + new URL(url).hostname);
+    return kino2.fetch(url, { headers: { "User-Agent": UA, ...opts.headers || {} }, method: opts.method, body: opts.body, timeoutMs: Math.min(REQUEST_MS, left) });
+  };
+  req.left = () => Math.max(0, deadline - Date.now());
+  return req;
+}
+
+// src/plugin.js
+var RESOLVE_MS = 4e4;
+var MAX_COPIES = 6;
+var CACHE_MS = 10 * 60 * 1e3;
+var STRINGS = {
+  es: {
+    onAir: "En emisi\xF3n",
+    dramas: "Doramas",
+    movies: "Pel\xEDculas",
+    lat: "Latino",
+    esp: "Castellano",
+    sub: "Subtitulado",
+    episode: "Cap\xEDtulo",
+    unavailable: "El servicio no est\xE1 disponible en este momento.",
+    noEpisodes: "No se encontraron cap\xEDtulos de este dorama.",
+    noStreams: "Ning\xFAn servidor de este cap\xEDtulo abri\xF3. Prueba m\xE1s tarde.",
+    heroOnAir: "Doramas en emisi\xF3n, con cap\xEDtulos nuevos cada semana."
+  },
+  en: {
+    onAir: "On air",
+    dramas: "Dramas",
+    movies: "Movies",
+    lat: "Latino",
+    esp: "Castilian",
+    sub: "Subtitled",
+    episode: "Episode",
+    unavailable: "The service is not available right now.",
+    noEpisodes: "No episodes found for this drama.",
+    noStreams: "No server of this episode opened. Try again later.",
+    heroOnAir: "Dramas on air, with new episodes every week."
+  }
+};
+var t = (key) => {
+  const lang = String(kino.lang || "").toLowerCase().startsWith("es") ? "es" : "en";
+  return STRINGS[lang][key] || STRINGS.es[key] || key;
+};
+var text = (r) => r.text();
+async function getPage(url, headers) {
+  const r = await kino.fetch(url, { headers: { "User-Agent": UA, "Accept-Language": "es-MX,es;q=0.9", ...headers || {} }, timeoutMs: 15e3 });
+  if (!r.ok) throw kino.error("unavailable", `DoramasYT ${r.status} ${url}`, { userMessage: t("unavailable") });
+  return text(r);
+}
+async function cached(key, fn) {
+  try {
+    const raw = kino.storage.get("c:" + key);
+    const e = raw ? JSON.parse(raw) : null;
+    if (e && Date.now() - e.at < CACHE_MS) return e.v;
+  } catch (_) {
+  }
+  const v = await fn();
+  try {
+    kino.storage.set("c:" + key, JSON.stringify({ at: Date.now(), v }), { ttlMs: CACHE_MS });
+  } catch (_) {
+  }
+  return v;
+}
+function toItem(card, kind) {
+  const lang = langOf(card.title);
+  const badge = lang === "lat" ? t("lat") : lang === "esp" ? t("esp") : t("sub");
+  const item = {
+    id: (kind === "movie" ? "m-" : "d-") + card.slug,
+    ref: (kind === "movie" ? "m:" : "d:") + card.slug,
+    title: card.title.replace(/\s+(latino|castellano)$/i, "").trim() || card.title,
+    kind,
+    badges: [badge],
+    lang: lang === "lat" ? "es-419" : lang === "esp" ? "es-ES" : void 0
+  };
+  if (card.poster) item.poster = card.poster;
+  if (!item.lang) delete item.lang;
+  return item;
+}
+var LISTINGS = {
+  emision: { path: "/emision", titleKey: "onAir", kind: "series" },
+  doramas: { path: "/doramas", titleKey: "dramas", kind: "series" },
+  peliculas: { path: "/doramas?categoria=pelicula", titleKey: "movies", kind: "movie" }
+};
+async function listing(name, page) {
+  const def = LISTINGS[name];
+  const url = SITE + def.path + (page > 1 ? (def.path.includes("?") ? "&" : "?") + "page=" + page : "");
+  return cached(`${name}:${page}`, async () => parseCards(await getPage(url)));
+}
+async function home() {
+  const names = Object.keys(LISTINGS);
+  const rows = await Promise.all(names.map(async (name) => {
+    try {
+      const cards = await listing(name, 1);
+      const def = LISTINGS[name];
+      const items = cards.slice(0, 20).map((c) => toItem(c, def.kind));
+      return items.length ? { id: name, title: t(def.titleKey), items, ref: "list:" + name, genre: def.kind === "movie" ? "peliculas" : "series" } : null;
+    } catch (e) {
+      kino.log("home row " + name + ": " + (e && e.message));
+      return null;
+    }
+  }));
+  return rows.filter(Boolean);
+}
+async function browse(ref, cursor) {
+  const m = /^list:(emision|doramas|peliculas)$/.exec(String(ref || ""));
+  if (!m) return { items: [] };
+  const page = cursor ? Math.max(1, parseInt(cursor, 10) || 1) : 1;
+  const cards = await listing(m[1], page);
+  const items = cards.map((c) => toItem(c, LISTINGS[m[1]].kind));
+  return { items, next: cards.length >= 24 ? String(page + 1) : void 0 };
+}
+async function search(arg) {
+  const q = String(typeof arg === "string" ? arg : arg && arg.q || "").trim();
+  if (q.length < 2) return [];
+  const cards = await cached("s:" + q.toLowerCase(), async () => parseCards(await getPage(`${SITE}/buscar?q=${encodeURIComponent(q)}`)));
+  return cards.slice(0, 40).map((c) => toItem(c, "series"));
+}
+async function showEpisodes(slug) {
+  const url = `${SITE}/dorama/${slug}`;
+  const html = await getPage(url);
+  const show = parseShow(html);
+  if (!show.ajax) throw kino.error("not_found", "no caplist on " + url, { userMessage: t("noEpisodes") });
+  const r = await kino.fetch(show.ajax, {
+    method: "POST",
+    headers: { "User-Agent": UA, "X-Requested-With": "XMLHttpRequest", Referer: url, Origin: SITE, Accept: "application/json, text/javascript, */*; q=0.01" },
+    body: { form: { _token: show.token } },
+    timeoutMs: 15e3
+  });
+  if (!r.ok) throw kino.error("unavailable", "caplist " + r.status, { userMessage: t("unavailable") });
+  const numbers = parseEpisodeNumbers(await text(r));
+  if (!numbers.length) throw kino.error("not_found", "no episodes for " + slug, { userMessage: t("noEpisodes") });
+  return { show, numbers };
+}
+async function episodes(ref) {
+  const slug = /^[dm]:([a-z0-9-]+)$/i.exec(String(ref || ""))?.[1];
+  if (!slug) throw kino.error("not_found", "unknown ref: " + ref);
+  const { show, numbers } = await showEpisodes(slug);
+  const series = { title: show.title.replace(/\s+(latino|castellano)$/i, "").trim() || void 0, poster: show.poster, backdrop: show.backdrop, overview: show.overview || void 0, genres: show.genres.length ? show.genres : void 0 };
+  for (const k of Object.keys(series)) if (series[k] === void 0) delete series[k];
+  return {
+    series,
+    episodes: numbers.map((n) => ({ season: 1, number: n, ref: `e:${slug}:${n}`, title: `${t("episode")} ${n}` }))
+  };
+}
+var PREFERENCE = [/mp4upload/i, /lulu/i, /streamtape/i, /(mxdrop|mixdrop)/i];
+var rank = (name) => {
+  const i = PREFERENCE.findIndex((re) => re.test(name));
+  return i < 0 ? 99 : i;
+};
+var SERVER_NAMES = { mp4upload: "Mp4Upload", lulu: "LuluVdo", streamtape: "StreamTape", mixdrop: "MixDrop", mxdrop: "MixDrop" };
+var prettyName = (name) => {
+  const k = Object.keys(SERVER_NAMES).find((x) => new RegExp(x, "i").test(name));
+  return k ? SERVER_NAMES[k] : name;
+};
+function usable(players) {
+  return players.filter((p) => rank(p.name) < 99).sort((a, b) => rank(a.name) - rank(b.name)).slice(0, MAX_COPIES);
+}
+async function openPlayer(player, req, pageUrl) {
+  const frame = await req(`${SITE}/reproductor?video=${encodeURIComponent(player.value)}`, { headers: { Referer: pageUrl } });
+  if (!frame.ok) return null;
+  const embed = parseIframe(await text(frame));
+  if (!embed) return null;
+  const ex = extractorFor(embed);
+  if (!ex) return null;
+  return ex.extract(embed, req, kino);
+}
+function streamOf(out, lang, name) {
+  return { url: out.url, mime: out.mime, headers: { "User-Agent": UA, ...out.headers || {} }, label: `${t(lang)} \xB7 ${prettyName(name)}`, ...out.subtitles ? { subtitles: out.subtitles } : {}, ...out.durationMs ? { durationMs: out.durationMs } : {} };
+}
+async function resolve(ref) {
+  const m = /^(?:(e):([a-z0-9-]+):(\d+)|(m):([a-z0-9-]+)|(c):([a-z0-9-]+):(\d+):([0-9]))$/i.exec(String(ref || ""));
+  if (!m) throw kino.error("not_found", "unknown ref: " + ref);
+  const slug = m[2] || m[5] || m[7];
+  const only = m[6] ? Number(m[9]) : null;
+  const lang = langOf(slug);
+  const req = makeReq(kino, { deadline: Date.now() + RESOLVE_MS });
+  const wantedN = Number(m[3] || m[8]);
+  const tries = m[4] ? [0, 1] : wantedN === 1 ? [1, 0] : [wantedN];
+  let number = tries[0], pageUrl = watchUrl(slug, number), html = null, lastError = null;
+  for (const n of tries) {
+    number = n;
+    pageUrl = watchUrl(slug, n);
+    try {
+      html = await getPage(pageUrl, { Referer: `${SITE}/dorama/${slug}` });
+      break;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  if (html == null) throw lastError;
+  const players = usable(parsePlayers(html));
+  if (!players.length) throw kino.error("not_found", "no usable players on " + pageUrl, { userMessage: t("noStreams") });
+  const order = only != null ? [only] : players.map((_, i) => i);
+  const failures = [];
+  for (const i of order) {
+    const player = players[i];
+    if (!player) continue;
+    try {
+      const out = await openPlayer(player, req, pageUrl);
+      if (!out) {
+        failures.push(`${player.name}: no stream`);
+        continue;
+      }
+      const stream = streamOf(out, lang, player.name);
+      if (only == null) {
+        const others = players.map((_, j) => j).filter((j) => j !== i);
+        if (others.length) stream.alternatives = others.map((j) => ({ ref: `c:${slug}:${number}:${j}`, label: `${t(lang)} \xB7 ${prettyName(players[j].name)}` }));
+      }
+      return stream;
+    } catch (e) {
+      failures.push(`${player.name}: ${e && e.message || e}`);
+    }
+  }
+  kino.log("resolve " + baseOf(slug) + " " + number + " failed: " + failures.join("; "));
+  throw kino.error("not_found", "no player opened for " + pageUrl, { userMessage: t("noStreams") });
+}
+export {
+  browse,
+  episodes,
+  home,
+  resolve,
+  search
+};

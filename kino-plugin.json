@@ -1,0 +1,50 @@
+{
+  "id": "doramasyt",
+  "name": "DoramasYT",
+  "version": "0.1.0",
+  "apiVersion": 6,
+  "entry": "plugin.js",
+  "icon": "icon.png",
+  "description": "Doramas asiáticos en español (latino, castellano o subtitulados) de doramasyt.com: en emisión, catálogo, películas y búsqueda.",
+  "author": "xuper-plugin",
+  "homepage": "https://github.com/xuper-plugin/kino-plugin-doramasyt",
+  "hosts": [
+    "doramasyt.com",
+    "www.doramasyt.com",
+    "mp4upload.com",
+    "www.mp4upload.com",
+    "luluvdo.com",
+    "lulustream.com",
+    "mxdrop.click",
+    "mixdrop.top",
+    "mixdrop.to",
+    "mixdrop.co",
+    "mixdrop.ag",
+    "mixdrop.ch",
+    "mixdrop.ps",
+    "mixdrop.sx",
+    "mixdrop.bz",
+    "mxdrop.to",
+    "streamtape.com",
+    "streamtape.to",
+    "streamtape.net",
+    "streamta.pe",
+    "strtape.cloud",
+    "strcloud.link",
+    "stape.fun",
+    "streamadblocker.xyz"
+  ],
+  "capabilities": [
+    "search",
+    "home",
+    "browse",
+    "episodes",
+    "resolve"
+  ],
+  "streamHosts": "any",
+  "categories": [
+    "series",
+    "movies"
+  ],
+  "color": "#7C3AED"
+}

@@ -1,0 +1,4 @@
+Kino plugin "DoramasYT". Site behaviour (listings, the caplist request, the players of an episode and what each server's page holds)
+was read from the live site and from the CloudStream provider "DoramasYTProvider" in redblacker8/storm-ext (a fork of
+Stormunblessed/storm-ext); no code was copied from it. The packer reader and the request helper are adapted from the Kino plugin
+"SeriesMetro" (xuper-plugin/kino-plugin-seriesmetro, Apache-2.0), by the same author.
