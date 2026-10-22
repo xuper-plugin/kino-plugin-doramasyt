@@ -37,17 +37,21 @@ const ASIAN = new Set(["ko", "ja", "zh", "cn", "th", "id", "vi", "tl", "ms", "hi
 // Where two shows share a name (a Korean drama and its Philippine remake), the site's catalogue is mostly these.
 const CORE = new Set(["ko", "ja", "zh", "cn", "th"]);
 
-/** The result that is this title: an exact name first, then one name containing the other, then the top hit in an Asian language. */
-export function pickResult(results, title) {
+/**
+ * The result that is this title: an exact name (an Asian original first when two shows share it), then one name containing the other,
+ * and, only when `loose`, the top Asian-language hit; null when none is close.
+ */
+export function pickResult(results, title, { loose = true } = {}) {
   const q = norm(title);
   if (!q) return null;
   const usable = (Array.isArray(results) ? results : []).filter((r) => r && (r.media_type === "tv" || r.media_type === "movie" || r.media_type === undefined) && r.poster_path);
   const names = (r) => [r.name, r.title, r.original_name, r.original_title].map(norm).filter(Boolean);
   const exact = usable.slice(0, 6).filter((r) => names(r).includes(q));
-  return (exact.find((r) => CORE.has(r.original_language)) || exact[0])
+  const byName = exact.find((r) => CORE.has(r.original_language)) || exact[0]
     || usable.slice(0, 3).find((r) => names(r).some((n) => n.length >= 4 && q.length >= 4 && (n.includes(q) || q.includes(n))))
-    || usable.slice(0, 2).find((r) => ASIAN.has(r.original_language))
     || null;
+  if (byName || !loose) return byName;
+  return usable.slice(0, 2).find((r) => ASIAN.has(r.original_language)) || null;
 }
 
 const read = (key) => {
@@ -65,9 +69,19 @@ export async function lookupArt(title) {
   const key = KEY + norm(title);
   const hit = read(key);
   if (hit) return hit;
-  const res = await tmdb("/search/multi", { query: String(title).slice(0, 120), language: "es-MX" });
+  const query = String(title).slice(0, 120);
+  const res = await tmdb("/search/multi", { query, language: "es-MX" });
   if (res === null) return {};
-  const r = pickResult(res && res.results, title);
+  // TMDB names a show in the language of the request, and the site writes the English or romanised name: an English title finds
+  // the Korean drama only by its English name, and by the Spanish one it finds a remake that kept the name. So when the Spanish
+  // answer has no Asian original by name, the same search is made in English and its answer is the one that counts.
+  let r = pickResult(res && res.results, title, { loose: false });
+  if (!r || !CORE.has(r.original_language)) {
+    const en = await tmdb("/search/multi", { query, language: "en-US" });
+    const r2 = pickResult(en && en.results, title, { loose: false });
+    if (r2 && (CORE.has(r2.original_language) || !r)) r = r2;
+  }
+  if (!r) r = pickResult(res && res.results, title);
   const art = r
     ? {
       poster: IMG + "w500" + r.poster_path,

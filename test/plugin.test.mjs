@@ -233,6 +233,8 @@ test("art: an exact name, a name that contains the other, or the top Asian-langu
   assert.equal(art.pickResult([], "x"), null);
   const twin = [r("What's Wrong with Secretary Kim?", { original_language: "tl", id: 2024 }), r("What's Wrong with Secretary Kim?", { original_language: "ko", id: 2018 })];
   assert.equal(art.pickResult(twin, "What's Wrong with Secretary Kim?").id, 2018, "two shows with one name: the Korean one, not its Philippine remake");
+  assert.equal(art.pickResult([r("The Office", { original_language: "en", id: 1 })], "The Office").id, 1, "with no Asian hit nearby an exact name still wins");
+  assert.equal(art.pickResult([r("Another Show", { original_language: "ko", id: 5 }), r("Other", { original_language: "ko", id: 6 })], "Perfect Crown", { loose: false }), null, "strict: a top Asian hit with another name is not taken");
   assert.equal(art.norm("Qué le ocurre a la Secretaria Kim Latino"), "que le ocurre a la secretaria kim");
 });
 
@@ -298,4 +300,24 @@ test("art: a show's page uses TMDB's poster and background over the site's block
   assert.equal(r.series.overview, "Una sinopsis larga.", "the site's synopsis is in Spanish and stays");
   assert.equal(r.series.year, "2024");
   assert.equal(tmdbCalls[0].params.query, "Qué le ocurre a la secretaria Kim");
+});
+
+test("art: an English title whose Korean original TMDB names in Spanish is found by the English search, not confused with a remake", async () => {
+  const kr = { media_type: "tv", name: "¿Qué le ocurre a la secretaria Kim?", original_name: "김비서가 왜 그럴까", original_language: "ko", poster_path: "/kr.jpg", first_air_date: "2018-06-06", id: 2018 };
+  const krEn = { ...kr, name: "What's Wrong with Secretary Kim", id: 2018 };
+  const ph = { media_type: "tv", name: "What's Wrong with Secretary Kim?", original_name: "What's Wrong with Secretary Kim?", original_language: "tl", poster_path: "/ph.jpg", first_air_date: "2024-08-01", id: 2024 };
+  const film = { media_type: "movie", title: "김비서는 정말 왜 그럴까?", original_title: "김비서는 정말 왜 그럴까?", original_language: "ko", poster_path: "/film.jpg", release_date: "2020-01-01", id: 7 };
+  withTmdb((path, params) => ({ results: params.language === "en-US" ? [ph, krEn] : [ph, film, kr] }));
+  pages[S + "/buscar?q=secretary%20kim"] = { body: `<ul>${card("whats-wrong-with-secretary-kim-sub-espanol", "What's Wrong with Secretary Kim?")}</ul>` };
+  const [item] = await plugin.search("secretary kim");
+  assert.equal(item.poster, "https://image.tmdb.org/t/p/w500/kr.jpg");
+  assert.equal(item.year, "2018");
+  assert.deepEqual(tmdbCalls.map((c) => c.params.language), ["es-MX", "en-US"]);
+});
+
+test("art: a Spanish title found at once as an Asian original costs one call", async () => {
+  withTmdb((path, params) => hit(params.query, { name: params.query }));
+  pages[S + "/doramas"] = { body: `<ul>${card("x-sub-espanol", "Mi Dorama")}</ul>` };
+  await plugin.browse("list:doramas", null);
+  assert.equal(tmdbCalls.length, 1);
 });

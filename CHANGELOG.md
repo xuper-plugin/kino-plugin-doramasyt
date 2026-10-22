@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+
+- Fix: the English title of a Korean drama no longer takes the cover of a remake that shares the name (TMDB names the original in Spanish); an Asian original near the top of the results wins over an exact name from another country.
+  / Arreglo: el título en inglés de un dorama coreano ya no toma la carátula de un remake con el mismo nombre.
+
 ## 0.1.3
 
 - Fix: two shows with one name (a Korean drama and its remake) no longer swap covers: the Korean, Japanese, Chinese or Thai original is preferred. Covers found by the earlier matching are looked up again.

@@ -286,13 +286,15 @@ async function tmdb(path, params) {
 }
 var ASIAN = /* @__PURE__ */ new Set(["ko", "ja", "zh", "cn", "th", "id", "vi", "tl", "ms", "hi"]);
 var CORE = /* @__PURE__ */ new Set(["ko", "ja", "zh", "cn", "th"]);
-function pickResult(results, title) {
+function pickResult(results, title, { loose = true } = {}) {
   const q = norm(title);
   if (!q) return null;
   const usable2 = (Array.isArray(results) ? results : []).filter((r) => r && (r.media_type === "tv" || r.media_type === "movie" || r.media_type === void 0) && r.poster_path);
   const names = (r) => [r.name, r.title, r.original_name, r.original_title].map(norm).filter(Boolean);
   const exact = usable2.slice(0, 6).filter((r) => names(r).includes(q));
-  return exact.find((r) => CORE.has(r.original_language)) || exact[0] || usable2.slice(0, 3).find((r) => names(r).some((n) => n.length >= 4 && q.length >= 4 && (n.includes(q) || q.includes(n)))) || usable2.slice(0, 2).find((r) => ASIAN.has(r.original_language)) || null;
+  const byName = exact.find((r) => CORE.has(r.original_language)) || exact[0] || usable2.slice(0, 3).find((r) => names(r).some((n) => n.length >= 4 && q.length >= 4 && (n.includes(q) || q.includes(n)))) || null;
+  if (byName || !loose) return byName;
+  return usable2.slice(0, 2).find((r) => ASIAN.has(r.original_language)) || null;
 }
 var read = (key) => {
   try {
@@ -313,9 +315,16 @@ async function lookupArt(title) {
   const key = KEY + norm(title);
   const hit = read(key);
   if (hit) return hit;
-  const res = await tmdb("/search/multi", { query: String(title).slice(0, 120), language: "es-MX" });
+  const query = String(title).slice(0, 120);
+  const res = await tmdb("/search/multi", { query, language: "es-MX" });
   if (res === null) return {};
-  const r = pickResult(res && res.results, title);
+  let r = pickResult(res && res.results, title, { loose: false });
+  if (!r || !CORE.has(r.original_language)) {
+    const en = await tmdb("/search/multi", { query, language: "en-US" });
+    const r2 = pickResult(en && en.results, title, { loose: false });
+    if (r2 && (CORE.has(r2.original_language) || !r)) r = r2;
+  }
+  if (!r) r = pickResult(res && res.results, title);
   const art = r ? {
     poster: IMG + "w500" + r.poster_path,
     ...r.backdrop_path ? { backdrop: IMG + "w780" + r.backdrop_path } : {},
