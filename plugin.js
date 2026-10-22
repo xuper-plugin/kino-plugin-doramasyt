@@ -263,6 +263,104 @@ function makeReq(kino2, { deadline }) {
   return req;
 }
 
+// src/art.js
+var IMG = "https://image.tmdb.org/t/p/";
+var DAY_MS = 24 * 60 * 60 * 1e3;
+var HIT_MS = 30 * DAY_MS;
+var MISS_MS = 2 * DAY_MS;
+var BUDGET = 24;
+var BATCH = 8;
+var fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+var norm = (s) => fold(s).replace(/\(\d{4}\)/g, " ").replace(/\b(latino|castellano|sub espanol)\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+async function tmdb(path, params) {
+  if (typeof kino.tmdb !== "function") return null;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await kino.tmdb(path, params);
+    } catch (e) {
+      if (!e || e.code !== "rate_limited" || attempt >= 2) throw e;
+      await kino.sleep(1200 * (attempt + 1));
+    }
+  }
+}
+var ASIAN = /* @__PURE__ */ new Set(["ko", "ja", "zh", "cn", "th", "id", "vi", "tl", "ms", "hi"]);
+function pickResult(results, title) {
+  const q = norm(title);
+  if (!q) return null;
+  const usable2 = (Array.isArray(results) ? results : []).filter((r) => r && (r.media_type === "tv" || r.media_type === "movie" || r.media_type === void 0) && r.poster_path);
+  const names = (r) => [r.name, r.title, r.original_name, r.original_title].map(norm).filter(Boolean);
+  return usable2.slice(0, 6).find((r) => names(r).includes(q)) || usable2.slice(0, 3).find((r) => names(r).some((n) => n.length >= 4 && q.length >= 4 && (n.includes(q) || q.includes(n)))) || usable2.slice(0, 2).find((r) => ASIAN.has(r.original_language)) || null;
+}
+var read = (key) => {
+  try {
+    const raw = kino.storage.get(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+};
+var write = (key, v, ttlMs) => {
+  try {
+    kino.storage.set(key, JSON.stringify(v), { ttlMs });
+  } catch (_) {
+  }
+};
+var cachedArt = (title) => read("art:" + norm(title));
+async function lookupArt(title) {
+  const key = "art:" + norm(title);
+  const hit = read(key);
+  if (hit) return hit;
+  const res = await tmdb("/search/multi", { query: String(title).slice(0, 120), language: "es-MX" });
+  if (res === null) return {};
+  const r = pickResult(res && res.results, title);
+  const art = r ? {
+    poster: IMG + "w500" + r.poster_path,
+    ...r.backdrop_path ? { backdrop: IMG + "w780" + r.backdrop_path } : {},
+    .../^\d{4}/.test(r.first_air_date || r.release_date || "") ? { year: String((r.first_air_date || r.release_date).slice(0, 4)) } : {},
+    ...r.vote_average > 0 ? { rating: Math.round(r.vote_average * 10) / 10 } : {},
+    ...r.overview ? { overview: String(r.overview).slice(0, 600) } : {}
+  } : {};
+  write(key, art, r ? HIT_MS : MISS_MS);
+  return art;
+}
+var apply = (item, art) => {
+  if (art.poster) item.poster = art.poster;
+  if (art.year && !item.year) item.year = art.year;
+  if (art.rating && !item.rating) item.rating = art.rating;
+};
+async function addArt(items) {
+  const todo = [];
+  for (const item of items) {
+    const hit = cachedArt(item.title);
+    if (hit) apply(item, hit);
+    else todo.push(item);
+  }
+  let spent = 0;
+  try {
+    while (todo.length && spent < BUDGET) {
+      const batch = todo.splice(0, Math.min(BATCH, BUDGET - spent));
+      spent += batch.length;
+      const arts = await Promise.allSettled(batch.map((item) => lookupArt(item.title)));
+      let stop = null;
+      arts.forEach((a, i) => {
+        if (a.status === "fulfilled") apply(batch[i], a.value);
+        else stop = stop || a.reason;
+      });
+      if (stop) throw stop;
+    }
+  } catch (e) {
+    if (typeof kino.log === "function") kino.log("art: stopped (" + (e && e.code || e && e.message) + ")");
+  }
+  return items;
+}
+async function showArt(title) {
+  try {
+    return await lookupArt(title);
+  } catch (_) {
+    return {};
+  }
+}
+
 // src/plugin.js
 var RESOLVE_MS = 4e4;
 var MAX_COPIES = 6;
@@ -357,7 +455,11 @@ async function home() {
       return null;
     }
   }));
-  return rows.filter(Boolean);
+  const shown = rows.filter(Boolean);
+  const order = [];
+  for (let i = 0; i < 20; i++) for (const row of shown) if (row.items[i]) order.push(row.items[i]);
+  await addArt(order);
+  return shown;
 }
 async function browse(ref, cursor) {
   const m = /^list:(emision|doramas|peliculas)$/.exec(String(ref || ""));
@@ -365,13 +467,14 @@ async function browse(ref, cursor) {
   const page = cursor ? Math.max(1, parseInt(cursor, 10) || 1) : 1;
   const cards = await listing(m[1], page);
   const items = cards.map((c) => toItem(c, LISTINGS[m[1]].kind));
+  await addArt(items);
   return { items, next: cards.length >= 24 ? String(page + 1) : void 0 };
 }
 async function search(arg) {
   const q = String(typeof arg === "string" ? arg : arg && arg.q || "").trim();
   if (q.length < 2) return [];
   const cards = await cached("s:" + q.toLowerCase(), async () => parseCards(await getPage(`${SITE}/buscar?q=${encodeURIComponent(q)}`)));
-  return cards.slice(0, 40).map((c) => toItem(c, "series"));
+  return addArt(cards.slice(0, 40).map((c) => toItem(c, "series")));
 }
 async function showEpisodes(slug) {
   const url = `${SITE}/dorama/${slug}`;
@@ -393,7 +496,9 @@ async function episodes(ref) {
   const slug = /^[dm]:([a-z0-9-]+)$/i.exec(String(ref || ""))?.[1];
   if (!slug) throw kino.error("not_found", "unknown ref: " + ref);
   const { show, numbers } = await showEpisodes(slug);
-  const series = { title: show.title.replace(/\s+(latino|castellano)$/i, "").trim() || void 0, poster: show.poster, backdrop: show.backdrop, overview: show.overview || void 0, genres: show.genres.length ? show.genres : void 0 };
+  const name = show.title.replace(/\s+(latino|castellano)$/i, "").trim();
+  const art = await showArt(name || show.title);
+  const series = { title: name || void 0, poster: art.poster || show.poster, backdrop: art.backdrop || show.backdrop, overview: show.overview || art.overview || void 0, genres: show.genres.length ? show.genres : void 0, year: art.year, rating: art.rating };
   for (const k of Object.keys(series)) if (series[k] === void 0) delete series[k];
   return {
     series,

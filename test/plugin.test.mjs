@@ -30,6 +30,7 @@ globalThis.kino = {
   error: (code, message, opts = {}) => Object.assign(new Error(message), { code, ...opts }),
 };
 const plugin = await import("../plugin.js");
+const art = await import("../src/art.js");
 const { addressOf } = await import("../src/extractors/streamtape.js");
 const { extractorFor } = await import("../src/extractors/index.js");
 const { makeReq } = await import("../src/util/http.js");
@@ -211,4 +212,88 @@ test("mixdrop and luluvdo: the packed script gives the file; a page without it g
   assert.match(lu.url, /^https:\/\/[^/]+\/hls2\/.+master\.m3u8/);
   assert.equal(await extractorFor("https://mixdrop.top/e/c").extract("https://mixdrop.top/e/c", reqFor(), kino), null);
   assert.ok(logs.some((l) => /mixdrop/.test(l) && /no file/.test(l)));
+});
+
+// ---- cover art from TMDB (the site's own images are blocked for Kino's image loader) ----
+
+const tmdbCalls = [];
+let tmdbImpl = null;
+const withTmdb = (impl) => { tmdbImpl = impl; globalThis.kino.tmdb = async (path, params) => { tmdbCalls.push({ path, params }); return tmdbImpl(path, params); }; globalThis.kino.sleep = async () => {}; };
+const noTmdb = () => { delete globalThis.kino.tmdb; delete globalThis.kino.sleep; tmdbImpl = null; };
+beforeEach(() => { tmdbCalls.length = 0; noTmdb(); });
+const hit = (name, extra = {}) => ({ results: [{ media_type: "tv", name, original_name: name, poster_path: "/p.jpg", backdrop_path: "/b.jpg", first_air_date: "2024-03-01", vote_average: 8.34, original_language: "ko", ...extra }] });
+
+test("art: an exact name, a name that contains the other, or the top Asian-language hit; never a poster-less or unrelated result", () => {
+  const r = (name, o = {}) => ({ media_type: "tv", name, original_name: "x", poster_path: "/p.jpg", original_language: "en", ...o });
+  assert.equal(art.pickResult([r("Other"), r("Moon Lovers")], "Moon Lovers (Latino)").name, "Moon Lovers");
+  assert.equal(art.pickResult([r("Moon Lovers: Scarlet Heart Ryeo")], "Moon Lovers").name, "Moon Lovers: Scarlet Heart Ryeo");
+  assert.equal(art.pickResult([r("La corona perfecta", { original_language: "ko" })], "Perfect Crown").name, "La corona perfecta", "the Spanish name of the right Korean show");
+  assert.equal(art.pickResult([r("Perfect Crown", { poster_path: null })], "Perfect Crown"), null, "no poster, no result");
+  assert.equal(art.pickResult([r("Something Else")], "Perfect Crown"), null, "an English show with another name is not it");
+  assert.equal(art.pickResult([], "x"), null);
+  assert.equal(art.norm("Qué le ocurre a la Secretaria Kim Latino"), "que le ocurre a la secretaria kim");
+});
+
+test("art: a listing gets TMDB posters, year and rating; the answer is kept, so the next call asks nothing", async () => {
+  withTmdb((path, params) => hit(params.query));
+  pages[S + "/doramas?page=2"] = { body: LISTING };
+  const first = await plugin.browse("list:doramas", "2");
+  assert.equal(first.items[0].poster, "https://image.tmdb.org/t/p/w500/p.jpg");
+  assert.equal(first.items[0].year, "2024");
+  assert.equal(first.items[0].rating, 8.3);
+  assert.equal(tmdbCalls.length, 2);
+  assert.equal(tmdbCalls[0].path, "/search/multi");
+  assert.equal(tmdbCalls[0].params.language, "es-MX");
+  const again = await plugin.browse("list:doramas", "2");
+  assert.equal(again.items[0].poster, first.items[0].poster);
+  assert.equal(tmdbCalls.length, 2, "cached");
+});
+
+test("art: a title TMDB does not know keeps its place and is not asked again; a Kino with no kino.tmdb shows the list as it is", async () => {
+  withTmdb(() => ({ results: [] }));
+  pages[S + "/emision"] = { body: LISTING };
+  const a = await plugin.browse("list:emision", null);
+  assert.equal(a.items.length, 2);
+  assert.ok(a.items[0].poster.includes("doramasyt.com"), "the site's poster stays as the last resort");
+  const n = tmdbCalls.length;
+  await plugin.browse("list:emision", null);
+  assert.equal(tmdbCalls.length, n, "a miss is cached too");
+  noTmdb(); store = new Map();
+  assert.equal((await plugin.browse("list:emision", null)).items.length, 2);
+});
+
+test("art: when Kino's TMDB limit is spent the list still comes, with the art it got", async () => {
+  let n = 0;
+  withTmdb((path, params) => { if (++n > 2) throw Object.assign(new Error("slow down"), { code: "rate_limited" }); return hit(params.query); });
+  const full = `<ul>${Array.from({ length: 24 }, (_, i) => card("show-" + i + "-sub-espanol", "Show " + i)).join("")}</ul>`;
+  pages[S + "/doramas"] = { body: full };
+  const p = await plugin.browse("list:doramas", null);
+  assert.equal(p.items.length, 24);
+  assert.equal(p.items.filter((i) => i.poster.includes("image.tmdb.org")).length, 2);
+  assert.ok(logs.some((l) => /art: stopped.*rate_limited/.test(l)));
+});
+
+test("art: no more than 24 lookups per call, the rest wait for the next one", async () => {
+  withTmdb((path, params) => hit(params.query));
+  const many = (prefix) => `<ul>${Array.from({ length: 30 }, (_, i) => card(`${prefix}-${i}-sub-espanol`, `${prefix} ${i}`)).join("")}</ul>`;
+  pages[S + "/buscar?q=more"] = { body: many("more") };
+  const first = await plugin.search("more");
+  assert.equal(tmdbCalls.length, 24);
+  assert.equal(first.filter((i) => i.poster.includes("image.tmdb.org")).length, 24);
+  tmdbCalls.length = 0;
+  const second = await plugin.search("more");
+  assert.equal(tmdbCalls.length, 6, "the next call asks only for what is still missing");
+  assert.equal(second.filter((i) => i.poster.includes("image.tmdb.org")).length, 30);
+});
+
+test("art: a show's page uses TMDB's poster and background over the site's blocked ones, and TMDB's synopsis only when the site has none", async () => {
+  withTmdb((path, params) => hit(params.query, { overview: "TMDB synopsis" }));
+  pages[`${S}/dorama/${slug}`] = { body: SHOW };
+  pages[`${S}/ajax/ajax_pagination/2275`] = { body: CAPLIST };
+  const r = await plugin.episodes("d:" + slug);
+  assert.equal(r.series.poster, "https://image.tmdb.org/t/p/w500/p.jpg");
+  assert.equal(r.series.backdrop, "https://image.tmdb.org/t/p/w780/b.jpg");
+  assert.equal(r.series.overview, "Una sinopsis larga.", "the site's synopsis is in Spanish and stays");
+  assert.equal(r.series.year, "2024");
+  assert.equal(tmdbCalls[0].params.query, "Qué le ocurre a la secretaria Kim");
 });

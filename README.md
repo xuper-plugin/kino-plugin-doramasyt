@@ -23,6 +23,12 @@ xuper-plugin/kino-plugin-doramasyt
   oculto o piden verificación humana.
 - Si el título tiene «Latino» o «Castellano» en su nombre en el sitio, la copia se marca así; si no, «Subtitulado».
 
+## Carátulas
+
+El sitio protege sus imágenes con Cloudflare y Kino no puede cargarlas, así que las carátulas, el año y la nota salen de TMDB, buscando por
+título. Las primeras veces algunas tarjetas pueden salir sin carátula: cada carga pide a TMDB hasta 24 títulos nuevos y guarda la
+respuesta (30 días), y las siguientes completan el resto. Un dorama que TMDB no conoce se queda sin carátula.
+
 ## Límites
 
 - Una serie con más de 50 capítulos puede mostrar solo los primeros: el sitio los reparte por páginas y aún no se piden las siguientes.

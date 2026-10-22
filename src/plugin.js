@@ -7,6 +7,7 @@
 import { SITE, slugOf, baseOf, watchUrl, langOf, parseCards, parseShow, parseEpisodeNumbers, parsePlayers, parseIframe } from "./doramasyt.js";
 import { extractorFor } from "./extractors/index.js";
 import { makeReq, UA } from "./util/http.js";
+import { addArt, showArt } from "./art.js";
 
 const RESOLVE_MS = 40000;
 const MAX_COPIES = 6;
@@ -99,7 +100,12 @@ export async function home() {
       return items.length ? { id: name, title: t(def.titleKey), items, ref: "list:" + name, genre: def.kind === "movie" ? "peliculas" : "series" } : null;
     } catch (e) { kino.log("home row " + name + ": " + (e && e.message)); return null; }
   }));
-  return rows.filter(Boolean);
+  const shown = rows.filter(Boolean);
+  // The site's own posters are blocked for Kino's image loader (see art.js): TMDB art, spread over the rows so each gets its first cards.
+  const order = [];
+  for (let i = 0; i < 20; i++) for (const row of shown) if (row.items[i]) order.push(row.items[i]);
+  await addArt(order);
+  return shown;
 }
 
 export async function browse(ref, cursor) {
@@ -108,6 +114,7 @@ export async function browse(ref, cursor) {
   const page = cursor ? Math.max(1, parseInt(cursor, 10) || 1) : 1;
   const cards = await listing(m[1], page);
   const items = cards.map((c) => toItem(c, LISTINGS[m[1]].kind));
+  await addArt(items);
   return { items, next: cards.length >= 24 ? String(page + 1) : undefined };
 }
 
@@ -115,7 +122,7 @@ export async function search(arg) {
   const q = String(typeof arg === "string" ? arg : (arg && arg.q) || "").trim();
   if (q.length < 2) return [];
   const cards = await cached("s:" + q.toLowerCase(), async () => parseCards(await getPage(`${SITE}/buscar?q=${encodeURIComponent(q)}`)));
-  return cards.slice(0, 40).map((c) => toItem(c, "series"));
+  return addArt(cards.slice(0, 40).map((c) => toItem(c, "series")));
 }
 
 /** A show's episodes: the page, then the caplist POST with the page's own csrf token (and cookies). */
@@ -140,7 +147,9 @@ export async function episodes(ref) {
   const slug = /^[dm]:([a-z0-9-]+)$/i.exec(String(ref || ""))?.[1];
   if (!slug) throw kino.error("not_found", "unknown ref: " + ref);
   const { show, numbers } = await showEpisodes(slug);
-  const series = { title: show.title.replace(/\s+(latino|castellano)$/i, "").trim() || undefined, poster: show.poster, backdrop: show.backdrop, overview: show.overview || undefined, genres: show.genres.length ? show.genres : undefined };
+  const name = show.title.replace(/\s+(latino|castellano)$/i, "").trim();
+  const art = await showArt(name || show.title);
+  const series = { title: name || undefined, poster: art.poster || show.poster, backdrop: art.backdrop || show.backdrop, overview: show.overview || art.overview || undefined, genres: show.genres.length ? show.genres : undefined, year: art.year, rating: art.rating };
   for (const k of Object.keys(series)) if (series[k] === undefined) delete series[k];
   return {
     series,
