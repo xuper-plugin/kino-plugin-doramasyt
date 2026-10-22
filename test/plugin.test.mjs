@@ -231,6 +231,8 @@ test("art: an exact name, a name that contains the other, or the top Asian-langu
   assert.equal(art.pickResult([r("Perfect Crown", { poster_path: null })], "Perfect Crown"), null, "no poster, no result");
   assert.equal(art.pickResult([r("Something Else")], "Perfect Crown"), null, "an English show with another name is not it");
   assert.equal(art.pickResult([], "x"), null);
+  const twin = [r("What's Wrong with Secretary Kim?", { original_language: "tl", id: 2024 }), r("What's Wrong with Secretary Kim?", { original_language: "ko", id: 2018 })];
+  assert.equal(art.pickResult(twin, "What's Wrong with Secretary Kim?").id, 2018, "two shows with one name: the Korean one, not its Philippine remake");
   assert.equal(art.norm("Qué le ocurre a la Secretaria Kim Latino"), "que le ocurre a la secretaria kim");
 });
 

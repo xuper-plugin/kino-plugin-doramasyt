@@ -8,6 +8,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HIT_MS = 30 * DAY_MS;
 const MISS_MS = 2 * DAY_MS;
 /** TMDB lookups (not counting cache hits) one call may spend: Home, a page of a listing or a search. */
+// "art2:": the first version of the matching could keep the wrong show of two with one name for 30 days.
+const KEY = "art2:";
 const BUDGET = 24;
 const BATCH = 8;
 
@@ -32,6 +34,8 @@ async function tmdb(path, params) {
 // even for the right show. The first hits of a search are ranked by relevance (alternative titles count), and a drama's original
 // language is an Asian one, so that is accepted when no name matches.
 const ASIAN = new Set(["ko", "ja", "zh", "cn", "th", "id", "vi", "tl", "ms", "hi"]);
+// Where two shows share a name (a Korean drama and its Philippine remake), the site's catalogue is mostly these.
+const CORE = new Set(["ko", "ja", "zh", "cn", "th"]);
 
 /** The result that is this title: an exact name first, then one name containing the other, then the top hit in an Asian language. */
 export function pickResult(results, title) {
@@ -39,7 +43,8 @@ export function pickResult(results, title) {
   if (!q) return null;
   const usable = (Array.isArray(results) ? results : []).filter((r) => r && (r.media_type === "tv" || r.media_type === "movie" || r.media_type === undefined) && r.poster_path);
   const names = (r) => [r.name, r.title, r.original_name, r.original_title].map(norm).filter(Boolean);
-  return usable.slice(0, 6).find((r) => names(r).includes(q))
+  const exact = usable.slice(0, 6).filter((r) => names(r).includes(q));
+  return (exact.find((r) => CORE.has(r.original_language)) || exact[0])
     || usable.slice(0, 3).find((r) => names(r).some((n) => n.length >= 4 && q.length >= 4 && (n.includes(q) || q.includes(n))))
     || usable.slice(0, 2).find((r) => ASIAN.has(r.original_language))
     || null;
@@ -53,11 +58,11 @@ const write = (key, v, ttlMs) => {
 };
 
 /** `{ poster?, backdrop?, year?, rating?, overview? }` for a title, from the cache when it was looked up; undefined when it must be asked. */
-export const cachedArt = (title) => read("art:" + norm(title));
+export const cachedArt = (title) => read(KEY + norm(title));
 
 /** Looks the title up on TMDB and keeps the answer. Throws `rate_limited` when Kino's limit is spent, so the caller can stop. */
 export async function lookupArt(title) {
-  const key = "art:" + norm(title);
+  const key = KEY + norm(title);
   const hit = read(key);
   if (hit) return hit;
   const res = await tmdb("/search/multi", { query: String(title).slice(0, 120), language: "es-MX" });

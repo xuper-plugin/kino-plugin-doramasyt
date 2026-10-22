@@ -268,6 +268,7 @@ var IMG = "https://image.tmdb.org/t/p/";
 var DAY_MS = 24 * 60 * 60 * 1e3;
 var HIT_MS = 30 * DAY_MS;
 var MISS_MS = 2 * DAY_MS;
+var KEY = "art2:";
 var BUDGET = 24;
 var BATCH = 8;
 var fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -284,12 +285,14 @@ async function tmdb(path, params) {
   }
 }
 var ASIAN = /* @__PURE__ */ new Set(["ko", "ja", "zh", "cn", "th", "id", "vi", "tl", "ms", "hi"]);
+var CORE = /* @__PURE__ */ new Set(["ko", "ja", "zh", "cn", "th"]);
 function pickResult(results, title) {
   const q = norm(title);
   if (!q) return null;
   const usable2 = (Array.isArray(results) ? results : []).filter((r) => r && (r.media_type === "tv" || r.media_type === "movie" || r.media_type === void 0) && r.poster_path);
   const names = (r) => [r.name, r.title, r.original_name, r.original_title].map(norm).filter(Boolean);
-  return usable2.slice(0, 6).find((r) => names(r).includes(q)) || usable2.slice(0, 3).find((r) => names(r).some((n) => n.length >= 4 && q.length >= 4 && (n.includes(q) || q.includes(n)))) || usable2.slice(0, 2).find((r) => ASIAN.has(r.original_language)) || null;
+  const exact = usable2.slice(0, 6).filter((r) => names(r).includes(q));
+  return exact.find((r) => CORE.has(r.original_language)) || exact[0] || usable2.slice(0, 3).find((r) => names(r).some((n) => n.length >= 4 && q.length >= 4 && (n.includes(q) || q.includes(n)))) || usable2.slice(0, 2).find((r) => ASIAN.has(r.original_language)) || null;
 }
 var read = (key) => {
   try {
@@ -305,9 +308,9 @@ var write = (key, v, ttlMs) => {
   } catch (_) {
   }
 };
-var cachedArt = (title) => read("art:" + norm(title));
+var cachedArt = (title) => read(KEY + norm(title));
 async function lookupArt(title) {
-  const key = "art:" + norm(title);
+  const key = KEY + norm(title);
   const hit = read(key);
   if (hit) return hit;
   const res = await tmdb("/search/multi", { query: String(title).slice(0, 120), language: "es-MX" });

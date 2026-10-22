@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Fix: two shows with one name (a Korean drama and its remake) no longer swap covers: the Korean, Japanese, Chinese or Thai original is preferred. Covers found by the earlier matching are looked up again.
+  / Arreglo: dos series con el mismo nombre (un dorama coreano y su remake) ya no intercambian carátula; se prefiere el original asiático.
+
 ## 0.1.2
 
 - The art lookup now says in the log what it did (how many titles, whether kino.tmdb exists, how many got a poster), to find out why a device shows no covers.
