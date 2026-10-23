@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- A search that finds nothing now tries the work's original title and the other titles Kino knows (`originalTitle`, `altTitles`) and the typed text cut at its first colon or dash, and an empty answer is no longer kept in the cache for ten minutes. (Found searching "Yosuga no Sora" in SoloLatino.)
+  / Una búsqueda sin resultados ahora prueba el título original, los otros títulos que Kino conoce y el texto cortado en el primer dos puntos o guion; una respuesta vacía ya no se guarda diez minutos en la caché.
+
 ## 0.2.1
 
 - Rows are tagged `doramas` (a full "Doramas" row in Kino's category Home) and genre rows carry their genre on every title; `telemetry` added.

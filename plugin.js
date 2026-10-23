@@ -304,6 +304,31 @@ function makeReq(kino2, { deadline }) {
   return req;
 }
 
+// src/util/terms.js
+function searchTerms(arg) {
+  const q = String((typeof arg === "string" ? arg : arg && arg.q) || "").trim();
+  const norm2 = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+  const out = [];
+  const add = (s) => {
+    const v = String(s || "").trim();
+    if (v.length >= 2 && !out.some((x) => norm2(x) === norm2(v))) out.push(v);
+  };
+  add(q);
+  if (arg && typeof arg === "object") {
+    add(arg.originalTitle);
+    for (const a of Array.isArray(arg.altTitles) ? arg.altTitles : []) add(a);
+  }
+  add(q.split(/\s*[:\-–—]\s*/)[0]);
+  return out.slice(0, 4);
+}
+async function searchWithTerms(arg, one) {
+  for (const q of searchTerms(arg)) {
+    const found = await one(arg && typeof arg === "object" ? { ...arg, q } : q);
+    if (found.length) return found;
+  }
+  return [];
+}
+
 // src/art.js
 var IMG = "https://image.tmdb.org/t/p/";
 var DAY_MS = 24 * 60 * 60 * 1e3;
@@ -497,6 +522,7 @@ async function cached(key, fn) {
   } catch (_) {
   }
   const v = await fn();
+  if (Array.isArray(v) && !v.length) return v;
   try {
     kino.storage.set("c:" + key, JSON.stringify({ at: Date.now(), v }), { ttlMs: CACHE_MS });
   } catch (_) {
@@ -593,12 +619,13 @@ async function browse(ref, cursor) {
   await addArt(items);
   return { items, next: cards.length >= 24 ? String(page + 1) : void 0 };
 }
-async function search(arg) {
+async function searchOne(arg) {
   const q = String(typeof arg === "string" ? arg : arg && arg.q || "").trim();
   if (q.length < 2) return [];
   const cards = await cached("s:" + q.toLowerCase(), async () => parseCards(await getPage(`${SITE}/buscar?q=${encodeURIComponent(q)}`)));
   return addArt(byAudio(cards).slice(0, 40).map((c) => toItem(c, "series")));
 }
+var search = (arg) => searchWithTerms(arg, searchOne);
 var SECTION_TABS = () => [
   { id: "novedades", label: t("news") },
   { id: "doramas", label: t("dramas") },
