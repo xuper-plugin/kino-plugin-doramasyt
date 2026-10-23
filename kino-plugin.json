@@ -1,7 +1,7 @@
 {
   "id": "doramasyt",
   "name": "DoramasYT",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "apiVersion": 9,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -123,5 +123,6 @@
       "confirm": "¿Vaciar la caché de listas y carátulas?",
       "confirmEn": "Clear the list and cover cache?"
     }
-  ]
+  ],
+  "telemetry": true
 }

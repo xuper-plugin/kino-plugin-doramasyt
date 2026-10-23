@@ -503,7 +503,7 @@ async function cached(key, fn) {
   }
   return v;
 }
-function toItem(card, kind) {
+function toItem(card, kind, genreName) {
   const lang = langOf(card.title);
   const badge = lang === "lat" ? t("lat") : lang === "esp" ? t("esp") : t("sub");
   const item = {
@@ -516,6 +516,7 @@ function toItem(card, kind) {
   };
   if (card.poster) item.poster = card.poster;
   if (!item.lang) delete item.lang;
+  if (genreName) item.genres = [genreName];
   return item;
 }
 var LISTINGS = {
@@ -549,8 +550,8 @@ async function listing(def, page) {
 }
 async function rowOf(id, def, ref) {
   const cards = byAudio(await listing(def, 1));
-  const items = cards.slice(0, 20).map((c) => toItem(c, def.kind));
-  return items.length ? { id, title: def.title || t(def.titleKey), items, ref, genre: def.kind === "movie" ? "peliculas" : "series" } : null;
+  const items = cards.slice(0, 20).map((c) => toItem(c, def.kind, def.title));
+  return items.length ? { id, title: def.title || t(def.titleKey), items, ref, genre: def.kind === "movie" ? "peliculas" : "doramas" } : null;
 }
 async function newEpisodesRow() {
   const cards = await cached("latest", async () => parseLatestEpisodes(await getPage(SITE + "/")));
@@ -560,7 +561,7 @@ async function newEpisodesRow() {
     it.badges = [`${t("episodeShort")} ${c.episode}`, ...it.badges || []];
     return it;
   });
-  return items.length >= 3 ? { id: "nuevos", title: t("newEpisodes"), items, genre: "series" } : null;
+  return items.length >= 3 ? { id: "nuevos", title: t("newEpisodes"), items, genre: "doramas" } : null;
 }
 var safeRow = async (id, fn) => {
   try {
@@ -622,7 +623,7 @@ async function section({ tab } = {}) {
     const d = listingOf("list:doramas");
     rows = [await safeRow("doramas", () => rowOf("doramas", d, "list:doramas")), await safeRow("doramas2", async () => {
       const items = byAudio(await listing(d, 2)).map((c) => toItem(c, "series"));
-      return items.length ? { id: "doramas2", title: t("more"), items, genre: "series" } : null;
+      return items.length ? { id: "doramas2", title: t("more"), items, genre: "doramas" } : null;
     })];
   } else if (chosen === "peliculas") {
     const d = listingOf("list:peliculas");

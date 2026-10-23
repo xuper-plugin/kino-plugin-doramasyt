@@ -62,7 +62,7 @@ async function cached(key, fn) {
   return v;
 }
 
-function toItem(card, kind) {
+function toItem(card, kind, genreName) {
   const lang = langOf(card.title);
   const badge = lang === "lat" ? t("lat") : lang === "esp" ? t("esp") : t("sub");
   const item = {
@@ -75,6 +75,7 @@ function toItem(card, kind) {
   };
   if (card.poster) item.poster = card.poster;
   if (!item.lang) delete item.lang;
+  if (genreName) item.genres = [genreName];
   return item;
 }
 
@@ -111,8 +112,8 @@ async function listing(def, page) {
 /** A Home or section row: the first page of a listing, art on its first cards, a "Ver más" ref. */
 async function rowOf(id, def, ref) {
   const cards = byAudio(await listing(def, 1));
-  const items = cards.slice(0, 20).map((c) => toItem(c, def.kind));
-  return items.length ? { id, title: def.title || t(def.titleKey), items, ref, genre: def.kind === "movie" ? "peliculas" : "series" } : null;
+  const items = cards.slice(0, 20).map((c) => toItem(c, def.kind, def.title));
+  return items.length ? { id, title: def.title || t(def.titleKey), items, ref, genre: def.kind === "movie" ? "peliculas" : "doramas" } : null;
 }
 
 /** The "Capítulos actualizados" cards of the home page, as shows with their newest episode; null when fewer than three shows (a bulk upload of one show is not news). */
@@ -120,7 +121,7 @@ async function newEpisodesRow() {
   const cards = await cached("latest", async () => parseLatestEpisodes(await getPage(SITE + "/")));
   const shown = byAudio(cards.map((c) => ({ ...c })));
   const items = shown.slice(0, 20).map((c) => { const it = toItem(c, "series"); it.badges = [`${t("episodeShort")} ${c.episode}`, ...(it.badges || [])]; return it; });
-  return items.length >= 3 ? { id: "nuevos", title: t("newEpisodes"), items, genre: "series" } : null;
+  return items.length >= 3 ? { id: "nuevos", title: t("newEpisodes"), items, genre: "doramas" } : null;
 }
 
 const safeRow = async (id, fn) => { try { return await fn(); } catch (e) { kino.log("row " + id + ": " + (e && e.message)); return null; } };
@@ -189,7 +190,7 @@ export async function section({ tab } = {}) {
     const d = listingOf("list:doramas");
     rows = [await safeRow("doramas", () => rowOf("doramas", d, "list:doramas")), await safeRow("doramas2", async () => {
       const items = byAudio(await listing(d, 2)).map((c) => toItem(c, "series"));
-      return items.length ? { id: "doramas2", title: t("more"), items, genre: "series" } : null;
+      return items.length ? { id: "doramas2", title: t("more"), items, genre: "doramas" } : null;
     })];
   } else if (chosen === "peliculas") {
     const d = listingOf("list:peliculas");

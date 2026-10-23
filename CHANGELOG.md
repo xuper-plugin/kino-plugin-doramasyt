@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Rows are tagged `doramas` (a full "Doramas" row in Kino's category Home) and genre rows carry their genre on every title; `telemetry` added.
+  / Las filas llevan la categoría `doramas` y cada título de un género lleva su género; se agrega `telemetry`.
+
 ## 0.2.0
 
 - Uses more of Kino's plugin API: a **section of its own** ("Doramas", with four tabs -- novedades, doramas, películas, géneros -- and a
