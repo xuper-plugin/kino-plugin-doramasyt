@@ -508,6 +508,7 @@ async function within(ms, work) {
 }
 
 // src/plugin.js
+globalThis.__kinoDropPendingFetches = true;
 var RESOLVE_MS = 4e4;
 var MAX_COPIES = 6;
 var CACHE_MS = 10 * 60 * 1e3;

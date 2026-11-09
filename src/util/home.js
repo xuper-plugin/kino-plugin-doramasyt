@@ -1,6 +1,6 @@
 // Home inside Kino's 20 s. A TV box spends several of them on its own, and a Promise.all over the rows waits for the slowest site (each
 // request may wait 15 s): measured on users' devices Home ran 21-26 s and Kino threw the whole answer away. So the rows are asked
-// together, the ones that answered inside the budget are shown, the slow ones go on filling the cache for the next opening, and the last
+// together, the ones that answered inside the budget are shown, the slow ones are dropped (Kino would otherwise hold the answer until they end), and the last
 // Home that worked is kept (12 h) for when none answers in time.
 const BUDGET_MS = 11000;
 const KEEP_MS = 12 * 60 * 60 * 1000;
@@ -31,8 +31,8 @@ function kept(key) {
 
 /**
  * [jobs]: functions that each answer a row (or null). Resolves with the rows that answered within [budgetMs], in order; with none,
- * the last Home kept; else an empty list. A job that is still running when the budget ends is not cancelled: it finishes into
- * the caches (and the saved copy is refreshed the next time).
+ * the last Home kept; else an empty list. A job still running when the budget ends is dropped with the call's other requests (plugin.js asks Kino to,
+ * see `__kinoDropPendingFetches`), so the answer leaves at the budget.
  */
 export async function homeWithin(jobs, { key = "home:last", budgetMs = BUDGET_MS } = {}) {
   const out = jobs.map(() => null);
@@ -49,7 +49,7 @@ export async function homeWithin(jobs, { key = "home:last", budgetMs = BUDGET_MS
   return kept(key) || [];
 }
 
-/** Waits for [work] at most [ms] (never rejects); what it was doing goes on after that (a cover-art lookup, say, fills the cache). */
+/** Waits for [work] at most [ms] (never rejects); what it was doing is dropped with the call's other requests (see `__kinoDropPendingFetches` in plugin.js). */
 export async function within(ms, work) {
   let done = false;
   const p = Promise.resolve(work).then(() => { done = true; }, () => { done = true; });

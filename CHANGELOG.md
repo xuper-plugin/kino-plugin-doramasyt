@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Home (and every call) leaves at its own budget: Kino waits for every request a call left running before it delivers the answer, so a Home that skipped a slow row was still held until that request ended or retried (measured on users' devices: Home ran 21-34 s with rows logged as skipped, and Kino threw the answer away at 20 s). The plugin now asks Kino to drop what a call leaves running (`globalThis.__kinoDropPendingFetches = true`, read by Kino 0.9.55 and later; an older Kino ignores it), with a test (`test/dropFetches.test.mjs`).
+
 ## 0.2.3
 
 - Home answers inside Kino's 20 s. Measured on users' devices (TV boxes and sticks) Home ran 21-26 s and Kino threw the whole answer away: the rows were asked with `Promise.all`, so the slowest site (each request may wait 15 s) decided. Now the rows are asked together and the ones that answer inside 11 s are shown; slow ones go on filling the cache for the next opening, and the last Home that worked is kept (12 h) for when none answers in time (`src/util/home.js`, tests in `test/home.test.mjs`). The cover-art lookup that ran after the rows with no limit of its own now gets what is left of ~13 s and carries on into the cache.
