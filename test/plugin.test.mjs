@@ -27,6 +27,7 @@ globalThis.kino = {
     return reply(typeof p === "function" ? p(opts) : p);
   },
   storage: { get: (k) => store.get(k) ?? null, set: (k, v) => store.set(k, String(v)), keys: () => [...store.keys()], remove: (k) => store.delete(k) },
+  sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 5))), // the runtime has it; Home waits on short sleeps
   log: (...a) => logs.push(a.join(" ")),
   error: (code, message, opts = {}) => Object.assign(new Error(message), { code, ...opts }),
 };
@@ -220,7 +221,7 @@ test("mixdrop and luluvdo: the packed script gives the file; a page without it g
 const tmdbCalls = [];
 let tmdbImpl = null;
 const withTmdb = (impl) => { tmdbImpl = impl; globalThis.kino.tmdb = async (path, params) => { tmdbCalls.push({ path, params }); return tmdbImpl(path, params); }; globalThis.kino.sleep = async () => {}; };
-const noTmdb = () => { delete globalThis.kino.tmdb; delete globalThis.kino.sleep; tmdbImpl = null; };
+const noTmdb = () => { delete globalThis.kino.tmdb; globalThis.kino.sleep = (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 5))); tmdbImpl = null; };
 beforeEach(() => { tmdbCalls.length = 0; noTmdb(); });
 const hit = (name, extra = {}) => ({ results: [{ media_type: "tv", name, original_name: name, poster_path: "/p.jpg", backdrop_path: "/b.jpg", first_air_date: "2024-03-01", vote_average: 8.34, original_language: "ko", ...extra }] });
 

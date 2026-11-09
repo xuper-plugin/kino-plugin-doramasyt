@@ -454,6 +454,59 @@ async function showArt(title) {
   }
 }
 
+// src/util/home.js
+var BUDGET_MS = 11e3;
+var KEEP_MS = 12 * 60 * 60 * 1e3;
+var MAX_CHARS = 60 * 1024;
+function keep(key, rows) {
+  try {
+    for (let per = 20; per >= 4; per -= 4) {
+      const text2 = JSON.stringify({ at: Date.now(), rows: rows.map((r) => ({ ...r, items: Array.isArray(r.items) ? r.items.slice(0, per) : r.items })) });
+      if (text2.length <= MAX_CHARS) {
+        kino.storage.set(key, text2, { ttlMs: KEEP_MS });
+        return;
+      }
+    }
+  } catch (_) {
+  }
+}
+function kept(key) {
+  try {
+    const o = JSON.parse(kino.storage.get(key) || "null");
+    return o && Date.now() - o.at < KEEP_MS && Array.isArray(o.rows) && o.rows.length ? o.rows : null;
+  } catch (_) {
+    return null;
+  }
+}
+async function homeWithin(jobs, { key = "home:last", budgetMs = BUDGET_MS } = {}) {
+  const out = jobs.map(() => null);
+  let done = false;
+  const all = Promise.all(jobs.map((job, i) => Promise.resolve().then(job).then((row) => {
+    out[i] = row;
+  }, () => {
+  }))).then(() => {
+    done = true;
+  });
+  const end = Date.now() + budgetMs;
+  while (!done && Date.now() < end) await Promise.race([all, kino.sleep(Math.min(250, Math.max(1, end - Date.now())))]);
+  const rows = out.filter(Boolean);
+  if (rows.length) {
+    keep(key, rows);
+    return rows;
+  }
+  return kept(key) || [];
+}
+async function within(ms, work) {
+  let done = false;
+  const p = Promise.resolve(work).then(() => {
+    done = true;
+  }, () => {
+    done = true;
+  });
+  const end = Date.now() + ms;
+  while (!done && Date.now() < end) await Promise.race([p, kino.sleep(Math.min(250, Math.max(1, end - Date.now())))]);
+}
+
 // src/plugin.js
 var RESOLVE_MS = 4e4;
 var MAX_COPIES = 6;
@@ -604,11 +657,13 @@ async function withArt(rows) {
   return rows;
 }
 async function home() {
-  const rows = (await Promise.all([
-    safeRow("nuevos", newEpisodesRow),
-    ...Object.keys(LISTINGS).map((name) => safeRow(name, () => rowOf(name, listingOf("list:" + name), "list:" + name)))
-  ])).filter(Boolean);
-  return withArt(rows);
+  const started = Date.now();
+  const rows = await homeWithin([
+    () => safeRow("nuevos", newEpisodesRow),
+    ...Object.keys(LISTINGS).map((name) => () => safeRow(name, () => rowOf(name, listingOf("list:" + name), "list:" + name)))
+  ], { budgetMs: 8e3 });
+  await within(Math.max(0, 13e3 - (Date.now() - started)), withArt(rows));
+  return rows;
 }
 async function browse(ref, cursor) {
   const def = listingOf(ref);

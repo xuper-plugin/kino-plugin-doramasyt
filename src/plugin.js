@@ -9,6 +9,7 @@ import { extractorFor } from "./extractors/index.js";
 import { makeReq, UA } from "./util/http.js";
 import { searchWithTerms } from "./util/terms.js";
 import { addArt, showArt, cachedArt } from "./art.js";
+import { homeWithin, within } from "./util/home.js";
 
 const RESOLVE_MS = 40000;
 const MAX_COPIES = 6;
@@ -139,11 +140,14 @@ async function withArt(rows) {
 // ---- exports ----
 
 export async function home() {
-  const rows = (await Promise.all([
-    safeRow("nuevos", newEpisodesRow),
-    ...Object.keys(LISTINGS).map((name) => safeRow(name, () => rowOf(name, listingOf("list:" + name), "list:" + name))),
-  ])).filter(Boolean);
-  return withArt(rows);
+  const started = Date.now();
+  const rows = await homeWithin([
+    () => safeRow("nuevos", newEpisodesRow),
+    ...Object.keys(LISTINGS).map((name) => () => safeRow(name, () => rowOf(name, listingOf("list:" + name), "list:" + name))),
+  ], { budgetMs: 8000 });
+  // The cover art is a nicety that used to run after the rows with no limit of its own: it gets what is left of ~13 s and carries on into the cache.
+  await within(Math.max(0, 13000 - (Date.now() - started)), withArt(rows));
+  return rows;
 }
 
 export async function browse(ref, cursor) {
