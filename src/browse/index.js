@@ -114,7 +114,12 @@ export function makeBrowse({ kino, brand, tabs, loadTab, searchTitles, canPlay =
       return searchView({ query, status, items, history: query === "" ? readHistory() : [], device: ctx.device });
     }
     const tab = TAB_IDS.includes(st.tab) ? st.tab : (tabFromArgs(ctx.route) ?? stored() ?? TAB_IDS[0]);
-    const data = enrich(dataOf(tab));
+    // A tab shows its kept copy at once when it is whole (freshly loaded this session) or it is not the one we just
+    // switched to; a just-switched tab that is still loading shows a skeleton instead of the previous tab's cards
+    // (the kept copy of a cold tab can look like the old cards "stuck" on a tab change).
+    const snap = enrich(dataOf(tab)); // also warms memo, so a played title is still found on this tab
+    const whole = !!(memo.get(tab) && memo.get(tab).whole);
+    const data = whole || st.freshTab !== tab ? snap : null;
     const loaded = TAB_IDS.map((t) => memo.get(t)).filter(Boolean).map((m) => m.data);
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
     return browseView({ brand, tabs, tab, data, recent: meta.dress(recentOf(readKeys(), loaded)), pending, failed: !!(st.failed && st.failed[tab]), canPlay, device: ctx.device });
@@ -131,17 +136,20 @@ export function makeBrowse({ kino, brand, tabs, loadTab, searchTitles, canPlay =
     open({ route, state, device }) {
       const tab = tabFromArgs(route) ?? (TAB_IDS.includes(state.tab) ? state.tab : stored() ?? TAB_IDS[0]);
       for (const t of TAB_IDS) dataOf(t); // the kept copies, so a played title is found whichever tab it was on
-      return { state: { tab, pending: needed(tab, device), failed: null } };
+      // The tab shown on open keeps its instant copy; freshTab is cleared (only a deliberate tab change arms the skeleton).
+      return { state: { tab, freshTab: null, pending: needed(tab, device), failed: null } };
     },
     tab({ value, arg, state }) {
       const tab = TAB_IDS.includes(value) ? value : TAB_IDS.includes(arg) ? arg : null;
       if (!tab) return null;
       remember(tab);
       dataOf(tab);
+      const whole = !!(memo.get(tab) && memo.get(tab).whole);
       const failed = { ...(state.failed || {}) };
       delete failed[tab];
       const pending = [tab, ...(Array.isArray(state.pending) ? state.pending.filter((t) => t !== tab) : [])];
-      return { state: { tab, pending: memo.get(tab) && memo.get(tab).whole ? pending.slice(1) : pending, failed } };
+      // A tab that is not whole yet shows a skeleton while it loads (freshTab), instead of its cold kept copy.
+      return { state: { tab, freshTab: whole ? null : tab, pending: whole ? pending.slice(1) : pending, failed } };
     },
     retry({ state, device }) {
       const tab = TAB_IDS.includes(state.tab) ? state.tab : TAB_IDS[0];

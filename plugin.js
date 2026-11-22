@@ -542,7 +542,9 @@ function makeBrowse({ kino: kino2, brand, tabs, loadTab, searchTitles, canPlay =
       return searchView({ query, status, items, history: query === "" ? readHistory() : [], device: ctx.device });
     }
     const tab = TAB_IDS.includes(st.tab) ? st.tab : tabFromArgs(ctx.route) ?? stored() ?? TAB_IDS[0];
-    const data = enrich(dataOf(tab));
+    const snap = enrich(dataOf(tab));
+    const whole = !!(memo.get(tab) && memo.get(tab).whole);
+    const data = whole || st.freshTab !== tab ? snap : null;
     const loaded = TAB_IDS.map((t2) => memo.get(t2)).filter(Boolean).map((m) => m.data);
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
     return browseView({ brand, tabs, tab, data, recent: meta.dress(recentOf(readKeys(), loaded)), pending, failed: !!(st.failed && st.failed[tab]), canPlay, device: ctx.device });
@@ -560,17 +562,18 @@ function makeBrowse({ kino: kino2, brand, tabs, loadTab, searchTitles, canPlay =
     open({ route, state, device }) {
       const tab = tabFromArgs(route) ?? (TAB_IDS.includes(state.tab) ? state.tab : stored() ?? TAB_IDS[0]);
       for (const t2 of TAB_IDS) dataOf(t2);
-      return { state: { tab, pending: needed(tab, device), failed: null } };
+      return { state: { tab, freshTab: null, pending: needed(tab, device), failed: null } };
     },
     tab({ value, arg, state }) {
       const tab = TAB_IDS.includes(value) ? value : TAB_IDS.includes(arg) ? arg : null;
       if (!tab) return null;
       remember(tab);
       dataOf(tab);
+      const whole = !!(memo.get(tab) && memo.get(tab).whole);
       const failed = { ...state.failed || {} };
       delete failed[tab];
       const pending = [tab, ...Array.isArray(state.pending) ? state.pending.filter((t2) => t2 !== tab) : []];
-      return { state: { tab, pending: memo.get(tab) && memo.get(tab).whole ? pending.slice(1) : pending, failed } };
+      return { state: { tab, freshTab: whole ? null : tab, pending: whole ? pending.slice(1) : pending, failed } };
     },
     retry({ state, device }) {
       const tab = TAB_IDS.includes(state.tab) ? state.tab : TAB_IDS[0];
