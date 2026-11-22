@@ -204,7 +204,13 @@ export async function section({ tab } = {}) {
   const chosen = tabs.some((x) => x.id === tab) ? tab : "novedades";
   let rows = [];
   if (chosen === "novedades") {
-    rows = [await safeRow("nuevos", newEpisodesRow), await safeRow("emision", () => rowOf("emision", listingOf("list:emision"), "list:emision"))];
+    // "nuevos" (the site's latest-episode block) is often one show's bulk upload, so it needs >=3 distinct shows and
+    // comes back null a lot; emision + a doramas row keep Novedades from collapsing to a single rail then.
+    rows = [
+      await safeRow("nuevos", newEpisodesRow),
+      await safeRow("emision", () => rowOf("emision", listingOf("list:emision"), "list:emision")),
+      await safeRow("doramas", () => rowOf("doramas", listingOf("list:doramas"), "list:doramas")),
+    ];
   } else if (chosen === "doramas") {
     const d = listingOf("list:doramas");
     rows = [await safeRow("doramas", () => rowOf("doramas", d, "list:doramas")), await safeRow("doramas2", async () => {

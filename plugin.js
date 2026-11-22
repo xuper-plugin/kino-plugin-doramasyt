@@ -1116,7 +1116,11 @@ async function section({ tab } = {}) {
   const chosen = tabs.some((x) => x.id === tab) ? tab : "novedades";
   let rows = [];
   if (chosen === "novedades") {
-    rows = [await safeRow("nuevos", newEpisodesRow), await safeRow("emision", () => rowOf("emision", listingOf("list:emision"), "list:emision"))];
+    rows = [
+      await safeRow("nuevos", newEpisodesRow),
+      await safeRow("emision", () => rowOf("emision", listingOf("list:emision"), "list:emision")),
+      await safeRow("doramas", () => rowOf("doramas", listingOf("list:doramas"), "list:doramas"))
+    ];
   } else if (chosen === "doramas") {
     const d = listingOf("list:doramas");
     rows = [await safeRow("doramas", () => rowOf("doramas", d, "list:doramas")), await safeRow("doramas2", async () => {
