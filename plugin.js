@@ -694,7 +694,7 @@ async function resolveViaHelper(embedUrl, kino2, referer, allowCapture = true) {
   let streams = res && Array.isArray(res.streams) ? res.streams.slice() : [];
   const subtitles = res && Array.isArray(res.subtitles) ? res.subtitles.filter((x) => x && x.lang && x.url) : [];
   let captured = false;
-  if (!streams.length && allowCapture) {
+  if (!streams.length && (typeof allowCapture === "function" ? allowCapture() : allowCapture)) {
     streams = await captureStreams(kino2, embedUrl, referer);
     captured = streams.length > 0;
   }
@@ -929,6 +929,12 @@ globalThis.__kinoDropPendingFetches = true;
 var RESOLVE_MS = 4e4;
 var MAX_COPIES = 8;
 var MAX_CAPTURES = 1;
+var CAPTURE_PAGE_MS = 23e3;
+function takeCapture(budget) {
+  if (!budget || budget.captures <= 0 || budget.deadline - Date.now() < CAPTURE_PAGE_MS) return false;
+  budget.captures -= 1;
+  return true;
+}
 var CACHE_MS = 10 * 60 * 1e3;
 var YEAR = (/* @__PURE__ */ new Date()).getUTCFullYear();
 var STATS_KEY = "srvStats";
@@ -1268,8 +1274,7 @@ async function openPlayer(player, req, pageUrl, budget) {
   if (!frame.ok) return null;
   const embed = parseIframe(await text(frame));
   if (!embed) return null;
-  const out = await resolveViaHelper(embed, kino, SITE + "/", budget.captures > 0);
-  if (out && out.captured) budget.captures -= 1;
+  const out = await resolveViaHelper(embed, kino, SITE + "/", () => takeCapture(budget));
   return out;
 }
 function streamOf(out, lang, name) {
@@ -1283,7 +1288,7 @@ async function resolve(ref) {
   const only = m[6] ? Number(m[9]) : null;
   const lang = langOf(slug);
   const req = makeReq(kino, { deadline: Date.now() + RESOLVE_MS });
-  const budget = { captures: MAX_CAPTURES };
+  const budget = { captures: MAX_CAPTURES, deadline: Date.now() + RESOLVE_MS };
   const wantedN = Number(m[3] || m[8]);
   const tries = m[4] ? [0, 1] : wantedN === 1 ? [1, 0] : [wantedN];
   let number = tries[0], pageUrl = watchUrl(slug, number), html = null, lastError = null;

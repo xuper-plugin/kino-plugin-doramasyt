@@ -1,7 +1,7 @@
 {
   "id": "doramasyt",
   "name": "DoramasYT",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "apiVersion": 20,
   "entry": "plugin.js",
   "icon": "icon.png",
