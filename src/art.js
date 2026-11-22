@@ -97,8 +97,11 @@ export async function lookupArt(title) {
 
 const apply = (item, art) => {
   if (art.poster) item.poster = art.poster;
+  // backdrop + overview feed the browse screen's hero slider (slidesOf needs a wide image and a synopsis per slide).
+  if (art.backdrop && !item.backdrop) item.backdrop = art.backdrop;
   if (art.year && !item.year) item.year = art.year;
   if (art.rating && !item.rating) item.rating = art.rating;
+  if (art.overview && !item.overview) item.overview = art.overview;
 };
 
 /**

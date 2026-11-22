@@ -815,8 +815,10 @@ async function lookupArt(title) {
 }
 var apply = (item, art) => {
   if (art.poster) item.poster = art.poster;
+  if (art.backdrop && !item.backdrop) item.backdrop = art.backdrop;
   if (art.year && !item.year) item.year = art.year;
   if (art.rating && !item.rating) item.rating = art.rating;
+  if (art.overview && !item.overview) item.overview = art.overview;
 };
 async function addArt(items) {
   try {
