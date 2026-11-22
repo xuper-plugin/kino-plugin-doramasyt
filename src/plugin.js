@@ -5,8 +5,9 @@
 // Declared hosts: the site, those four players and the pages they redirect to. `streamHosts: "any"` is for the CDNs the files sit on.
 
 import { SITE, GENRES, baseOf, watchUrl, langOf, parseCards, parseShow, parseFacts, parseLatestEpisodes, parseEpisodeNumbers, parsePlayers, parseIframe } from "./doramasyt.js";
-import { extractorFor } from "./extractors/index.js";
 import { makeReq, UA } from "./util/http.js";
+import { makeBrowse } from "./browse/index.js";
+import { RESOLVER_REPO, resolveViaHelper, resolverInstalled } from "./resolve-door.js";
 import { searchWithTerms } from "./util/terms.js";
 import { addArt, showArt, cachedArt } from "./art.js";
 import { homeWithin, within } from "./util/home.js";
@@ -20,6 +21,7 @@ globalThis.__kinoDropPendingFetches = true;
 
 const RESOLVE_MS = 40000;
 const MAX_COPIES = 6;
+const MAX_CAPTURES = 1;
 const CACHE_MS = 10 * 60 * 1000;
 
 // ---- i18n ----
@@ -33,6 +35,7 @@ const STRINGS = {
     noEpisodes: "No se encontraron capítulos de este dorama.",
     noStreams: "Ningún servidor de este capítulo abrió. Prueba más tarde.",
     heroOnAir: "Doramas en emisión, con capítulos nuevos cada semana.",
+    needResolver: "Para reproducir, abre DoramasYT desde el menú e instala el motor de reproducción que te pedirá.",
   },
   en: {
     onAir: "On air", dramas: "Dramas", movies: "Movies", news: "What's new", genres: "Genres", newEpisodes: "New episodes", more: "More dramas", moreMovies: "More movies", episodeShort: "Ep.",
@@ -42,6 +45,7 @@ const STRINGS = {
     noEpisodes: "No episodes found for this drama.",
     noStreams: "No server of this episode opened. Try again later.",
     heroOnAir: "Dramas on air, with new episodes every week.",
+    needResolver: "To play, open DoramasYT from the menu and install the playback engine it asks for.",
   },
 };
 const t = (key) => {
@@ -302,14 +306,16 @@ function usable(players) {
   return players.filter((p) => rank(p.name) < 99).sort((a, b) => rank(a.name) - rank(b.name)).slice(0, MAX_COPIES);
 }
 
-async function openPlayer(player, req, pageUrl) {
+async function openPlayer(player, req, pageUrl, budget) {
   const frame = await req(`${SITE}/reproductor?video=${encodeURIComponent(player.value)}`, { headers: { Referer: pageUrl } });
   if (!frame.ok) return null;
   const embed = parseIframe(await text(frame));
   if (!embed) return null;
-  const ex = extractorFor(embed);
-  if (!ex) return null;
-  return ex.extract(embed, req, kino);
+  // Every hoster embed goes to the shared kino-resolver (door); a gated host (e.g. a future VOE) that comes back empty
+  // is captured in DoramasYT's own hidden WebView while this resolve still has capture budget.
+  const out = await resolveViaHelper(embed, kino, SITE + "/", budget.captures > 0);
+  if (out && out.captured) budget.captures -= 1;
+  return out;
 }
 
 function streamOf(out, lang, name) {
@@ -323,10 +329,12 @@ function streamOf(out, lang, name) {
 export async function resolve(ref) {
   const m = /^(?:(e):([a-z0-9-]+):(\d+)|(m):([a-z0-9-]+)|(c):([a-z0-9-]+):(\d+):([0-9]))$/i.exec(String(ref || ""));
   if (!m) throw kino.error("not_found", "unknown ref: " + ref);
+  if (!(await resolverInstalled(kino))) throw kino.error("unavailable", "resolver missing", { userMessage: t("needResolver") });
   const slug = m[2] || m[5] || m[7];
   const only = m[6] ? Number(m[9]) : null;
   const lang = langOf(slug);
   const req = makeReq(kino, { deadline: Date.now() + RESOLVE_MS });
+  const budget = { captures: MAX_CAPTURES };
 
   // A movie is the site's episode 0 (a few are 1); an episode or a copy names its own number.
   // The caplist of a movie says 1 while its page is episodio-0, so a request for episode 1 may land on 0.
@@ -347,12 +355,13 @@ export async function resolve(ref) {
     const player = players[i];
     if (!player) continue;
     try {
-      const out = await openPlayer(player, req, pageUrl);
+      const out = await openPlayer(player, req, pageUrl, budget);
       if (!out) { failures.push(`${player.name}: no stream`); continue; }
       const stream = streamOf(out, lang, player.name);
       if (only == null) {
         const others = players.map((_, j) => j).filter((j) => j !== i);
         if (others.length) stream.alternatives = others.map((j) => ({ ref: `c:${slug}:${number}:${j}`, label: `${t(lang)} · ${prettyName(players[j].name)}` }));
+        try { browseScreen().notePlayed("d:" + slug); } catch (_) { /* never fails a play */ }
       }
       return stream;
     } catch (e) {
@@ -361,4 +370,61 @@ export async function resolve(ref) {
   }
   kino.log("resolve " + baseOf(slug) + " " + number + " failed: " + failures.join("; "));
   throw kino.error("not_found", "no player opened for " + pageUrl, { userMessage: t("noStreams") });
+}
+
+// ---- browse screen + Kino Resolver install gate ----
+
+const SUPPORT_URL = "https://ko-fi.com/xuperplugins";
+
+/** The donate affordance under every install button: a QR on TV (a TV can't open a link well), a heart button on phone/desktop. */
+function supportNode(device) {
+  if (device === "tv") return { type: "QrImage", value: SUPPORT_URL, size: "large", labelText: "Si te gusta mi trabajo, escanéalo y apóyame", labelTextEn: "If you like my work, scan it and support me" };
+  return { type: "ElevatedButton", key: "donate", icon: "heart", labelText: "Si te gusta mi trabajo, apóyame", labelTextEn: "If you like my work, support me", onPressed: { go: { url: { href: SUPPORT_URL } } } };
+}
+
+/** The install gate: the first screen while the shared kino-resolver (the engine DoramasYT plays through) is not installed.
+ *  The donate button sits under the install button, as on every gate. */
+function installGateView(device) {
+  return { type: "Scaffold", key: "doramasyt-install",
+    body: { type: "SingleChildScrollView", key: "installScroll", children: [
+      { type: "Column", padding: 24, gap: 16, crossAxisAlignment: "stretch", children: [
+        { type: "Text", text: "Necesitas el motor de reproducción", textEn: "You need the playback engine", style: "h3" },
+        { type: "Text", color: "secondary", text: "DoramasYT reproduce a través de Kino Resolver (gratis). Instálalo una vez y sirve para este y para otros plugins de sitios.", textEn: "DoramasYT plays through Kino Resolver (free). Install it once and it works here and in other site plugins." },
+        { type: "ElevatedButton", key: "installResolver", labelText: "Instalar Kino Resolver", labelTextEn: "Install Kino Resolver", onPressed: { go: { installPlugin: { repo: RESOLVER_REPO } } } },
+        supportNode(device),
+      ] },
+    ] },
+  };
+}
+
+/** The tabs of the own browse screen: the same ones section() serves (Novedades / Doramas / Películas / Géneros). */
+const SCREEN_TABS = [
+  { id: "novedades", es: "Novedades", en: "What's new" },
+  { id: "doramas", es: "Doramas", en: "Dramas" },
+  { id: "peliculas", es: "Películas", en: "Movies" },
+  { id: "generos", es: "Géneros", en: "Genres" },
+];
+
+let browseInstance = null;
+const browseScreen = () => (browseInstance ??= makeBrowse({
+  kino,
+  brand: "DoramasYT",
+  tabs: SCREEN_TABS,
+  loadTab: async (tabId) => ({ rows: (await section({ tab: tabId })).rows }),
+  searchTitles: (q) => search({ q }),
+  canPlay: false,
+}));
+
+/** `screen(ctx)`: the install gate while the resolver is missing, the rich browse screen (its own section rows) once it is there. */
+export async function screen(ctx) {
+  await null;
+  const c = ctx && typeof ctx === "object" ? ctx : {};
+  if (!(c.installed && c.installed[RESOLVER_REPO])) return installGateView(c.device);
+  return browseScreen().view(c);
+}
+
+/** `screenEvent(ev)`: the screen's events (its timers load a tab or a search, one per call). */
+export async function screenEvent(ev) {
+  await null;
+  return browseScreen().event(ev && typeof ev === "object" ? ev : {});
 }

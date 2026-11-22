@@ -13,6 +13,18 @@ let logs = [];
 let store = new Map();
 let lang = "es";
 let cfg = {};
+// The shared kino-resolver door, stubbed: `resolverUp` toggles whether it is installed (normalizeHost), `door(url)`
+// decides what `resolve` returns for an embed (default: a stream per known host), `doorCalls` records the embeds asked.
+let resolverUp = true;
+let doorCalls = [];
+let door = null;
+const defaultDoor = (url) => {
+  if (/mp4upload/i.test(url)) return { streams: [{ url: "https://a1.mp4upload.com/d/abc/file.mp4", kind: "mp4", server: "mp4upload", referer: "https://www.mp4upload.com/" }] };
+  if (/lulu/i.test(url)) return { streams: [{ url: "https://cdn.test/hls2/x/master.m3u8", kind: "hls", server: "lulustream", referer: "https://luluvdo.com/" }] };
+  if (/streamtape|strtape|strcloud|stape/i.test(url)) return { streams: [{ url: "https://streamtape.com/get_video?id=A&expires=1&ip=B&token=C", kind: "mp4", server: "streamtape", referer: "https://streamtape.com/" }] };
+  if (/mixdrop|mxdrop/i.test(url)) return { streams: [{ url: "https://a-delivery1.mxcontent.net/v2/x/file.mp4?t=1", kind: "mp4", server: "mixdrop", referer: "https://mixdrop.top/" }] };
+  return { streams: [] };
+};
 const reply = (p) => {
   const status = p?.status ?? (p ? 200 : 404);
   const body = typeof p === "function" ? "" : (p?.body ?? "");
@@ -30,6 +42,14 @@ globalThis.kino = {
   sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 5))), // the runtime has it; Home waits on short sleeps
   log: (...a) => logs.push(a.join(" ")),
   error: (code, message, opts = {}) => Object.assign(new Error(message), { code, ...opts }),
+  plugins: {
+    call: async (alias, method, args = {}) => {
+      if (alias !== "resolver") throw kino.error("not_declared", "no provider " + alias);
+      if (method === "normalizeHost") { if (!resolverUp) throw kino.error("provider_missing", "not installed"); let h = ""; try { h = new URL(args.url).host; } catch (_) { h = ""; } return { host: h }; }
+      if (method === "resolve") { doorCalls.push(args.url); return (door || defaultDoor)(args.url, args.referer); }
+      throw kino.error("not_declared", method);
+    },
+  },
 };
 const plugin = await import("../plugin.js");
 const art = await import("../src/art.js");
@@ -37,7 +57,7 @@ const { addressOf } = await import("../src/extractors/streamtape.js");
 const { extractorFor } = await import("../src/extractors/index.js");
 const { makeReq } = await import("../src/util/http.js");
 
-beforeEach(() => { calls.length = 0; pages = {}; logs = []; store = new Map(); lang = "es"; cfg = {}; });
+beforeEach(() => { calls.length = 0; pages = {}; logs = []; store = new Map(); lang = "es"; cfg = {}; resolverUp = true; doorCalls = []; door = null; });
 
 const S = "https://www.doramasyt.com";
 const card = (slug, title, img = "https://www.doramasyt.com/thumbs/x.webp") => `<li class="col mb-3"><article><a href="${S}/dorama/${slug}"><div><img class="lazy" src="${S}/img/capblank.png" data-src="${img}"></div><h3 class="h6">${title}</h3></a></article></li>`;
@@ -135,6 +155,7 @@ test("episodes: a page with no caplist, or an empty one, is an error with a sent
 test("resolve: the best known server first (Mp4Upload), the other three as lazy copies, servers with no extractor left out", async () => {
   installEpisode();
   const s = await plugin.resolve(`e:${slug}:1`);
+  assert.equal(doorCalls[0], "https://www.mp4upload.com/embed-abc.html");
   assert.match(s.url, /^https:\/\/a\d+\.mp4upload\.com/);
   assert.equal(s.mime, "video/mp4");
   assert.equal(s.label, "Latino · Mp4Upload");
@@ -142,6 +163,12 @@ test("resolve: the best known server first (Mp4Upload), the other three as lazy 
   assert.deepEqual(s.alternatives.map((a) => a.label), ["Latino · LuluVdo", "Latino · StreamTape", "Latino · MixDrop"]);
   assert.deepEqual(s.alternatives.map((a) => a.ref), [`c:${slug}:1:1`, `c:${slug}:1:2`, `c:${slug}:1:3`]);
   assert.ok(!calls.some((c) => /ENC-(MEGA|VOE|FM)/.test(c.url)), "mega, voe and filemoon are never opened");
+});
+
+test("resolve: without the resolver installed it asks to install the playback engine (and never names the brand)", async () => {
+  installEpisode();
+  resolverUp = false;
+  await assert.rejects(plugin.resolve(`e:${slug}:1`), (e) => e.code === "unavailable" && /motor de reproducci/.test(e.userMessage) && !/kino/i.test(e.userMessage));
 });
 
 test("resolve: each lazy copy opens its own server, with the right file type and no further alternatives", async () => {
@@ -159,11 +186,12 @@ test("resolve: each lazy copy opens its own server, with the right file type and
 
 test("resolve: a server that fails falls through to the next one; all failing is a sentence for the person", async () => {
   installEpisode();
-  pages["https://www.mp4upload.com/embed-abc.html"] = { body: "<html>gone</html>" };
+  // The door returns no stream for mp4upload: resolve falls through to LuluVdo.
+  door = (url) => (/mp4upload/i.test(url) ? { streams: [] } : defaultDoor(url));
   const s = await plugin.resolve(`e:${slug}:1`);
   assert.equal(s.label, "Latino · LuluVdo");
   assert.deepEqual(s.alternatives.map((a) => a.ref), [`c:${slug}:1:0`, `c:${slug}:1:2`, `c:${slug}:1:3`]);
-  for (const u of ["https://luluvdo.com/e/xyz", "https://streamtape.com/e/abc/file.mp4", "https://mixdrop.top/e/abc"]) pages[u] = { status: 503, body: "" };
+  door = () => ({ streams: [] }); // every server fails
   await assert.rejects(plugin.resolve(`e:${slug}:1`), (e) => e.code === "not_found" && /Ningún servidor/.test(e.userMessage));
 });
 
@@ -171,7 +199,6 @@ test("resolve: a movie is the site's episode 0, and episode 1 of a movie lands t
   const mslug = "apple-of-my-eye-sub-espanol";
   pages[`${S}/ver/apple-of-my-eye-episodio-0`] = { body: EPISODE };
   pages[`${S}/reproductor?video=ENC-MP4`] = frame("https://www.mp4upload.com/embed-abc.html");
-  pages["https://www.mp4upload.com/embed-abc.html"] = { body: fixture("mp4upload.html") };
   const a = await plugin.resolve(`m:${mslug}`);
   assert.equal(a.label, "Subtitulado · Mp4Upload");
   calls.length = 0;
