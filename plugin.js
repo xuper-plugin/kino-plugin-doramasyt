@@ -1261,7 +1261,7 @@ function noteServer(name, ok) {
   }
 }
 function usable(players) {
-  return players.filter((p) => rank(p.name) < 99).sort((a, b) => rank(a.name) - rank(b.name)).slice(0, MAX_COPIES);
+  return [...players].sort((a, b) => rank(a.name) - rank(b.name)).slice(0, MAX_COPIES);
 }
 async function openPlayer(player, req, pageUrl, budget) {
   const frame = await req(`${SITE}/reproductor?video=${encodeURIComponent(player.value)}`, { headers: { Referer: pageUrl } });

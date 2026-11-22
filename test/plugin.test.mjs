@@ -156,7 +156,7 @@ test("episodes: a page with no caplist, or an empty one, is an error with a sent
   await assert.rejects(plugin.episodes("zz"), (e) => e.code === "not_found");
 });
 
-test("resolve: Mp4Upload first, the other covered servers as lazy copies, mega (no resolver support) left out", async () => {
+test("resolve: Mp4Upload first, every other server offered as a lazy copy (even the unknown mega, ranked last)", async () => {
   installEpisode();
   const s = await plugin.resolve(`e:${slug}:1`);
   assert.equal(doorCalls[0], "https://www.mp4upload.com/embed-abc.html");
@@ -164,9 +164,10 @@ test("resolve: Mp4Upload first, the other covered servers as lazy copies, mega (
   assert.equal(s.mime, "video/mp4");
   assert.equal(s.label, "Latino · Mp4Upload");
   assert.equal(s.headers.Referer, "https://www.mp4upload.com/");
-  assert.deepEqual(s.alternatives.map((a) => a.label), ["Latino · VOE", "Latino · StreamTape", "Latino · MixDrop", "Latino · Filemoon", "Latino · LuluVdo"]);
-  assert.deepEqual(s.alternatives.map((a) => a.ref), [`c:${slug}:1:1`, `c:${slug}:1:2`, `c:${slug}:1:3`, `c:${slug}:1:4`, `c:${slug}:1:5`]);
-  assert.ok(!calls.some((c) => /ENC-MEGA/.test(c.url)), "mega is never opened (no resolver support)");
+  // Nothing the site lists is dropped: the preferred hosts first, and mega (which the plugin does not name) ranked last.
+  assert.deepEqual(s.alternatives.map((a) => a.label), ["Latino · VOE", "Latino · StreamTape", "Latino · MixDrop", "Latino · Filemoon", "Latino · LuluVdo", "Latino · mega"]);
+  assert.deepEqual(s.alternatives.map((a) => a.ref), [`c:${slug}:1:1`, `c:${slug}:1:2`, `c:${slug}:1:3`, `c:${slug}:1:4`, `c:${slug}:1:5`, `c:${slug}:1:6`]);
+  assert.ok(!calls.some((c) => /ENC-MEGA/.test(c.url)), "mega is never opened in the main resolve (Mp4Upload won first)");
 });
 
 test("resolve: without the resolver installed it asks to install the playback engine (and never names the brand)", async () => {
@@ -195,7 +196,7 @@ test("resolve: a server that fails falls through to the next one; all failing is
   door = (url) => (/mp4upload/i.test(url) ? { streams: [] } : defaultDoor(url));
   const s = await plugin.resolve(`e:${slug}:1`);
   assert.equal(s.label, "Latino · VOE"); // mp4upload gave nothing, VOE (next) plays
-  assert.deepEqual(s.alternatives.map((a) => a.ref), [`c:${slug}:1:0`, `c:${slug}:1:2`, `c:${slug}:1:3`, `c:${slug}:1:4`, `c:${slug}:1:5`]);
+  assert.deepEqual(s.alternatives.map((a) => a.ref), [`c:${slug}:1:0`, `c:${slug}:1:2`, `c:${slug}:1:3`, `c:${slug}:1:4`, `c:${slug}:1:5`, `c:${slug}:1:6`]);
   door = () => ({ streams: [] }); // every server fails
   await assert.rejects(plugin.resolve(`e:${slug}:1`), (e) => e.code === "not_found" && /Ningún servidor/.test(e.userMessage));
 });

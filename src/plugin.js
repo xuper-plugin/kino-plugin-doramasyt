@@ -335,9 +335,11 @@ function noteServer(name, ok) {
   } catch (_) { /* the stats are a nicety */ }
 }
 
-/** The players a resolver-covered server backs, in the STABLE order (the cp:<i> index points into this list). */
+/** Every server the episode lists, in the STABLE order (the cp:<i> index points into this list): the preferred hosts
+ *  first, the rest after. The shared resolver covers far more hosts than PREFERENCE names, and a host it does not know
+ *  inline is still handed to DoramasYT's WebView capture, so nothing the site offers is dropped up front. */
 function usable(players) {
-  return players.filter((p) => rank(p.name) < 99).sort((a, b) => rank(a.name) - rank(b.name)).slice(0, MAX_COPIES);
+  return [...players].sort((a, b) => rank(a.name) - rank(b.name)).slice(0, MAX_COPIES);
 }
 
 async function openPlayer(player, req, pageUrl, budget) {
