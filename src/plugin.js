@@ -23,12 +23,16 @@ const RESOLVE_MS = 40000;
 const MAX_COPIES = 8;
 const MAX_CAPTURES = 1;
 const CACHE_MS = 10 * 60 * 1000;
+const YEAR = new Date().getUTCFullYear(); // the "Estrenos" rows follow the current year on their own
+const STATS_KEY = "srvStats"; // learned per-server success, so the ones that work for this device are tried first
+const STATS_CAP = 24; // halve the counts past this, so a server that recovers climbs back
 
 // ---- i18n ----
 
 const STRINGS = {
   es: {
     onAir: "En emisión", dramas: "Doramas", movies: "Películas", news: "Novedades", genres: "Géneros", newEpisodes: "Capítulos nuevos", more: "Más doramas", moreMovies: "Más películas", episodeShort: "Cap.",
+    estrenos: "Estrenos", liveAction: "Live Action", moviesNew: "Películas nuevas",
     heroText: "Doramas en español, con capítulos nuevos cada semana.", statusLine: "Carátulas guardadas: {n}", cacheCleared: "Caché vaciada.",
     lat: "Latino", esp: "Castellano", sub: "Subtitulado", episode: "Capítulo",
     unavailable: "El servicio no está disponible en este momento.",
@@ -39,6 +43,7 @@ const STRINGS = {
   },
   en: {
     onAir: "On air", dramas: "Dramas", movies: "Movies", news: "What's new", genres: "Genres", newEpisodes: "New episodes", more: "More dramas", moreMovies: "More movies", episodeShort: "Ep.",
+    estrenos: "New releases", liveAction: "Live Action", moviesNew: "New movies",
     heroText: "Dramas in Spanish, with new episodes every week.", statusLine: "Covers kept: {n}", cacheCleared: "Cache cleared.",
     lat: "Latino", esp: "Castilian", sub: "Subtitled", episode: "Episode",
     unavailable: "The service is not available right now.",
@@ -95,8 +100,11 @@ function toItem(card, kind, genreName) {
 
 const LISTINGS = {
   emision: { path: "/emision", titleKey: "onAir", kind: "series" },
+  estrenos: { path: `/doramas?fecha=${YEAR}`, titleKey: "estrenos", kind: "series" },
   doramas: { path: "/doramas", titleKey: "dramas", kind: "series" },
+  liveaction: { path: "/doramas?categoria=live-action", titleKey: "liveAction", kind: "series" },
   peliculas: { path: "/doramas?categoria=pelicula", titleKey: "movies", kind: "movie" },
+  pelisnew: { path: `/doramas?categoria=pelicula&fecha=${YEAR}`, titleKey: "moviesNew", kind: "movie" },
 };
 
 /** `{ path, titleKey, kind }` for a browse ref: "list:<name>" or "genre:<slug>"; null for anything else. */
@@ -139,6 +147,8 @@ async function newEpisodesRow() {
 }
 
 const safeRow = async (id, fn) => { try { return await fn(); } catch (e) { kino.log("row " + id + ": " + (e && e.message)); return null; } };
+const listRow = (name) => safeRow(name, () => rowOf(name, listingOf("list:" + name), "list:" + name));
+const genreRow = (g) => safeRow("genre-" + g.slug, () => rowOf("genre-" + g.slug, listingOf("genre:" + g.slug), "genre:" + g.slug));
 
 /** TMDB art over the cards of the rows, spread so each row gets its first cards (see art.js). */
 async function withArt(rows) {
@@ -154,7 +164,10 @@ export async function home() {
   const started = Date.now();
   const rows = await homeWithin([
     () => safeRow("nuevos", newEpisodesRow),
-    ...Object.keys(LISTINGS).map((name) => () => safeRow(name, () => rowOf(name, listingOf("list:" + name), "list:" + name))),
+    () => listRow("estrenos"),
+    () => listRow("emision"),
+    () => listRow("doramas"),
+    () => listRow("peliculas"),
   ], { budgetMs: 8000 });
   // The cover art is a nicety that used to run after the rows with no limit of its own: it gets what is left of ~13 s and carries on into the cache.
   await within(Math.max(0, 13000 - (Date.now() - started)), withArt(rows));
@@ -204,27 +217,21 @@ export async function section({ tab } = {}) {
   const chosen = tabs.some((x) => x.id === tab) ? tab : "novedades";
   let rows = [];
   if (chosen === "novedades") {
-    // "nuevos" (the site's latest-episode block) is often one show's bulk upload, so it needs >=3 distinct shows and
-    // comes back null a lot; emision + a doramas row keep Novedades from collapsing to a single rail then.
-    rows = [
-      await safeRow("nuevos", newEpisodesRow),
-      await safeRow("emision", () => rowOf("emision", listingOf("list:emision"), "list:emision")),
-      await safeRow("doramas", () => rowOf("doramas", listingOf("list:doramas"), "list:doramas")),
-    ];
+    // The site's latest-episode block is often one show's bulk upload (newEpisodesRow needs >=3 distinct shows and comes
+    // back null a lot); the listing rows keep Novedades full regardless. All rows load in parallel.
+    rows = await Promise.all([safeRow("nuevos", newEpisodesRow), listRow("estrenos"), listRow("emision"), listRow("doramas"), listRow("peliculas")]);
   } else if (chosen === "doramas") {
-    const d = listingOf("list:doramas");
-    rows = [await safeRow("doramas", () => rowOf("doramas", d, "list:doramas")), await safeRow("doramas2", async () => {
-      const items = byAudio(await listing(d, 2)).map((c) => toItem(c, "series"));
-      return items.length ? { id: "doramas2", title: t("more"), items, genre: "doramas" } : null;
-    })];
+    // The whole catalog, then by country (K/J/C/Thai) and Live Action.
+    rows = await Promise.all([listRow("doramas"), ...GENRES.slice(0, 4).map(genreRow), listRow("liveaction")]);
   } else if (chosen === "peliculas") {
     const d = listingOf("list:peliculas");
-    rows = [await safeRow("peliculas", () => rowOf("peliculas", d, "list:peliculas")), await safeRow("peliculas2", async () => {
-      const items = byAudio(await listing(d, 2)).map((c) => toItem(c, "movie"));
-      return items.length ? { id: "peliculas2", title: t("moreMovies"), items, genre: "peliculas" } : null;
-    })];
+    rows = await Promise.all([
+      listRow("peliculas"), listRow("pelisnew"),
+      safeRow("peliculas2", async () => { const items = byAudio(await listing(d, 2)).map((c) => toItem(c, "movie")); return items.length ? { id: "peliculas2", title: t("moreMovies"), items, genre: "peliculas" } : null; }),
+    ]);
   } else {
-    rows = await Promise.all(GENRES.slice(0, 6).map((g) => safeRow("genre-" + g.slug, () => rowOf("genre-" + g.slug, listingOf("genre:" + g.slug), "genre:" + g.slug))));
+    // By genre: the slugs after the four country ones (romance, comedia, drama, accion, misterio, fantasia, historico, escolar).
+    rows = await Promise.all(GENRES.slice(4).map(genreRow));
   }
   rows = await withArt(rows.filter(Boolean));
   const answer = { tabs, tab: chosen, rows };
@@ -308,7 +315,27 @@ const rank = (name) => { const i = PREFERENCE.findIndex((re) => re.test(name)); 
 const SERVER_NAMES = { mp4upload: "Mp4Upload", voe: "VOE", streamtape: "StreamTape", mixdrop: "MixDrop", mxdrop: "MixDrop", filemoon: "Filemoon", doodstream: "DoodStream", dood: "DoodStream", lulu: "LuluVdo" };
 const prettyName = (name) => { const k = Object.keys(SERVER_NAMES).find((x) => new RegExp(x, "i").test(name)); return k ? SERVER_NAMES[k] : name; };
 
-/** `{ name, value }` players of an episode that a known extractor may open, best first. */
+// ---- learned server reliability (kept in storage, so it syncs across the person's devices) ----
+function readStats() {
+  try { const o = JSON.parse(kino.storage.get(STATS_KEY) || "{}"); return o && typeof o === "object" ? o : {}; } catch (_) { return {}; }
+}
+const statKey = (name) => String(prettyName(name) || name || "").toLowerCase();
+/** Laplace-smoothed success rate of a server (unknown = 0.5), from the kept stats. */
+function scoreOf(name, stats) { const s = stats[statKey(name)] || { ok: 0, fail: 0 }; return (s.ok + 1) / (s.ok + s.fail + 2); }
+/** Record that a server opened (ok=true) or not; counts decay past STATS_CAP so a recovered server climbs back. Never throws. */
+function noteServer(name, ok) {
+  try {
+    const stats = readStats();
+    const k = statKey(name);
+    const s = stats[k] || { ok: 0, fail: 0 };
+    s[ok ? "ok" : "fail"] += 1;
+    if (s.ok + s.fail > STATS_CAP) { s.ok = Math.round(s.ok / 2); s.fail = Math.round(s.fail / 2); }
+    stats[k] = s;
+    kino.storage.set(STATS_KEY, JSON.stringify(stats));
+  } catch (_) { /* the stats are a nicety */ }
+}
+
+/** The players a resolver-covered server backs, in the STABLE order (the cp:<i> index points into this list). */
 function usable(players) {
   return players.filter((p) => rank(p.name) < 99).sort((a, b) => rank(a.name) - rank(b.name)).slice(0, MAX_COPIES);
 }
@@ -356,14 +383,19 @@ export async function resolve(ref) {
   const players = usable(parsePlayers(html));
   if (!players.length) throw kino.error("not_found", "no usable players on " + pageUrl, { userMessage: t("noStreams") });
 
-  const order = only != null ? [only] : players.map((_, i) => i);
+  // Try order: for the automatic pick, the servers that have worked on this device first (learned score); the
+  // alternatives menu and the cp:<i> indices stay in the stable list order, so a saved copy ref always names the
+  // same server. An empty history leaves the static order untouched (the sort is stable).
+  const stats = readStats();
+  const order = only != null ? [only] : players.map((_, i) => i).sort((a, b) => scoreOf(players[b].name, stats) - scoreOf(players[a].name, stats));
   const failures = [];
   for (const i of order) {
     const player = players[i];
     if (!player) continue;
     try {
       const out = await openPlayer(player, req, pageUrl, budget);
-      if (!out) { failures.push(`${player.name}: no stream`); continue; }
+      if (!out) { failures.push(`${player.name}: no stream`); noteServer(player.name, false); continue; }
+      noteServer(player.name, true);
       const stream = streamOf(out, lang, player.name);
       if (only == null) {
         const others = players.map((_, j) => j).filter((j) => j !== i);
@@ -373,6 +405,7 @@ export async function resolve(ref) {
       return stream;
     } catch (e) {
       failures.push(`${player.name}: ${(e && e.message) || e}`);
+      noteServer(player.name, false);
     }
   }
   kino.log("resolve " + baseOf(slug) + " " + number + " failed: " + failures.join("; "));

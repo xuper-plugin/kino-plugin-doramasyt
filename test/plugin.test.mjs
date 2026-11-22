@@ -200,6 +200,17 @@ test("resolve: a server that fails falls through to the next one; all failing is
   await assert.rejects(plugin.resolve(`e:${slug}:1`), (e) => e.code === "not_found" && /Ningún servidor/.test(e.userMessage));
 });
 
+test("resolve: learns which server worked and tries it first next time", async () => {
+  installEpisode();
+  // First play: Mp4Upload gives nothing, VOE opens -> VOE earns a win, Mp4Upload a loss.
+  door = (url) => (/mp4upload/i.test(url) ? { streams: [] } : defaultDoor(url));
+  assert.equal((await plugin.resolve(`e:${slug}:1`)).label, "Latino · VOE");
+  // Second play: now every server would open; without learning Mp4Upload (static first) would win, but the learned
+  // order puts VOE (the past winner) first.
+  door = null;
+  assert.equal((await plugin.resolve(`e:${slug}:1`)).label, "Latino · VOE", "the server that worked is tried first");
+});
+
 test("resolve: a movie is the site's episode 0, and episode 1 of a movie lands there too", async () => {
   const mslug = "apple-of-my-eye-sub-espanol";
   pages[`${S}/ver/apple-of-my-eye-episodio-0`] = { body: EPISODE };
@@ -359,18 +370,22 @@ test("art: a Spanish title found at once as an Asian original costs one call", a
 // ---- the plugin's own section, categories, details and settings ----
 
 const LATEST = (n) => `<ul>${Array.from({ length: n }, (_, i) => `<li class="col"><article><a href="${S}/ver/show-${i}-latino-episodio-${10 + i}"><img data-src="${S}/thumbs/e${i}.webp"><h3>Ver Show ${i} Latino Capítulo ${10 + i}</h3></a></article></li>`).join("")}</ul>`;
+const YEAR = new Date().getUTCFullYear();
 const installLists = () => {
-  for (const p of ["/emision", "/doramas", "/doramas?categoria=pelicula", "/doramas?page=2", "/doramas?categoria=pelicula&page=2"]) pages[S + p] = { body: LISTING };
+  const paths = ["/emision", "/doramas", "/doramas?categoria=pelicula", "/doramas?page=2", "/doramas?categoria=pelicula&page=2",
+    `/doramas?fecha=${YEAR}`, "/doramas?categoria=live-action", `/doramas?categoria=pelicula&fecha=${YEAR}`];
+  for (const p of paths) pages[S + p] = { body: LISTING };
+  for (const g of ["k-drama", "j-drama", "c-drama", "thai-drama", "romance", "comedia", "drama", "accion", "misterio", "fantasia", "historico", "escolar"]) pages[`${S}/genero/${g}`] = { body: LISTING };
   pages[S + "/"] = { body: LATEST(2) };
 };
 
 test("home: the new-episodes row appears only when at least three shows have one; one row per listing besides", async () => {
   installLists();
-  assert.deepEqual((await plugin.home()).map((r) => r.id), ["emision", "doramas", "peliculas"]);
+  assert.deepEqual((await plugin.home()).map((r) => r.id), ["estrenos", "emision", "doramas", "peliculas"]);
   store = new Map();
   pages[S + "/"] = { body: LATEST(4) };
   const rows = await plugin.home();
-  assert.deepEqual(rows.map((r) => r.id), ["nuevos", "emision", "doramas", "peliculas"]);
+  assert.deepEqual(rows.map((r) => r.id), ["nuevos", "estrenos", "emision", "doramas", "peliculas"]);
   assert.equal(rows[0].title, "Capítulos nuevos");
   assert.equal(rows[0].items[0].ref, "d:show-0-latino-sub-espanol");
   assert.ok(rows[0].items[0].badges.includes("Cap. 10") && rows[0].items[0].badges.includes("Latino"));
@@ -389,17 +404,19 @@ test("section: four tabs, an unknown tab is the first one, every row has items, 
   assert.equal(first.hero.image, "https://image.tmdb.org/t/p/w780/fondo.jpg");
   assert.equal(first.hero.text, "Una historia de ejemplo");
   const dramas = await plugin.section({ tab: "doramas" });
-  assert.deepEqual(dramas.rows.map((r) => r.title), ["Doramas", "Más doramas"]);
+  assert.deepEqual(dramas.rows.map((r) => r.title), ["Doramas", "K-Drama", "J-Drama", "C-Drama", "Thai-Drama", "Live Action"]);
   assert.equal(dramas.rows[0].ref, "list:doramas");
-  assert.equal((await plugin.section({ tab: "peliculas" })).rows[0].items[0].kind, "movie");
+  const pelis = await plugin.section({ tab: "peliculas" });
+  assert.deepEqual(pelis.rows.map((r) => r.title), ["Películas", "Películas nuevas", "Más películas"]);
+  assert.equal(pelis.rows[0].items[0].kind, "movie");
 });
 
 test("section: the genres tab has a row per genre with its own Ver más, and a hero with no art still has a line of text", async () => {
   noTmdb();
-  for (const g of ["k-drama", "j-drama", "c-drama", "thai-drama", "romance", "comedia"]) pages[`${S}/genero/${g}`] = { body: LISTING };
+  for (const g of ["romance", "comedia", "drama", "accion", "misterio", "fantasia", "historico", "escolar"]) pages[`${S}/genero/${g}`] = { body: LISTING };
   const r = await plugin.section({ tab: "generos" });
-  assert.deepEqual(r.rows.map((x) => x.ref), ["genre:k-drama", "genre:j-drama", "genre:c-drama", "genre:thai-drama", "genre:romance", "genre:comedia"]);
-  assert.equal(r.rows[0].title, "K-Drama");
+  assert.deepEqual(r.rows.map((x) => x.ref), ["genre:romance", "genre:comedia", "genre:drama", "genre:accion", "genre:misterio", "genre:fantasia", "genre:historico", "genre:escolar"]);
+  assert.equal(r.rows[0].title, "Romance");
   assert.match(r.hero.text, /Doramas en español/);
   assert.equal(r.hero.image, undefined);
 });
