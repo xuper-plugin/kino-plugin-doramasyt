@@ -922,7 +922,7 @@ async function within(ms, work) {
 // src/plugin.js
 globalThis.__kinoDropPendingFetches = true;
 var RESOLVE_MS = 4e4;
-var MAX_COPIES = 6;
+var MAX_COPIES = 8;
 var MAX_CAPTURES = 1;
 var CACHE_MS = 10 * 60 * 1e3;
 var STRINGS = {
@@ -1204,12 +1204,12 @@ async function episodes(ref) {
     episodes: numbers.map((n) => ({ season: 1, number: n, ref: `e:${slug}:${n}`, title: `${t("episode")} ${n}` }))
   };
 }
-var PREFERENCE = [/mp4upload/i, /lulu/i, /streamtape/i, /(mxdrop|mixdrop)/i];
+var PREFERENCE = [/mp4upload/i, /voe/i, /streamtape/i, /(mxdrop|mixdrop)/i, /filemoon/i, /doodstream|dood/i, /lulu/i];
 var rank = (name) => {
   const i = PREFERENCE.findIndex((re) => re.test(name));
   return i < 0 ? 99 : i;
 };
-var SERVER_NAMES = { mp4upload: "Mp4Upload", lulu: "LuluVdo", streamtape: "StreamTape", mixdrop: "MixDrop", mxdrop: "MixDrop" };
+var SERVER_NAMES = { mp4upload: "Mp4Upload", voe: "VOE", streamtape: "StreamTape", mixdrop: "MixDrop", mxdrop: "MixDrop", filemoon: "Filemoon", doodstream: "DoodStream", dood: "DoodStream", lulu: "LuluVdo" };
 var prettyName = (name) => {
   const k = Object.keys(SERVER_NAMES).find((x) => new RegExp(x, "i").test(name));
   return k ? SERVER_NAMES[k] : name;

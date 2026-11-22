@@ -20,6 +20,8 @@ let doorCalls = [];
 let door = null;
 const defaultDoor = (url) => {
   if (/mp4upload/i.test(url)) return { streams: [{ url: "https://a1.mp4upload.com/d/abc/file.mp4", kind: "mp4", server: "mp4upload", referer: "https://www.mp4upload.com/" }] };
+  if (/voe\.sx/i.test(url)) return { streams: [{ url: "https://cdn.test/voe/master.m3u8", kind: "hls", server: "voe", referer: "https://voe.sx/" }] };
+  if (/filemoon/i.test(url)) return { streams: [{ url: "https://cdn.test/fm/master.m3u8", kind: "hls", server: "filemoon", referer: "https://filemoon.sx/" }] };
   if (/lulu/i.test(url)) return { streams: [{ url: "https://cdn.test/hls2/x/master.m3u8", kind: "hls", server: "lulustream", referer: "https://luluvdo.com/" }] };
   if (/streamtape|strtape|strcloud|stape/i.test(url)) return { streams: [{ url: "https://streamtape.com/get_video?id=A&expires=1&ip=B&token=C", kind: "mp4", server: "streamtape", referer: "https://streamtape.com/" }] };
   if (/mixdrop|mxdrop/i.test(url)) return { streams: [{ url: "https://a-delivery1.mxcontent.net/v2/x/file.mp4?t=1", kind: "mp4", server: "mixdrop", referer: "https://mixdrop.top/" }] };
@@ -78,6 +80,8 @@ const slug = "secretaria-kim-latino-sub-espanol";
 const installEpisode = (n = 1) => {
   pages[`${S}/ver/secretaria-kim-latino-episodio-${n}`] = { body: EPISODE };
   pages[`${S}/reproductor?video=ENC-MP4`] = frame("https://www.mp4upload.com/embed-abc.html");
+  pages[`${S}/reproductor?video=ENC-VOE`] = frame("https://voe.sx/e/abc");
+  pages[`${S}/reproductor?video=ENC-FM`] = frame("https://filemoon.sx/e/abc");
   pages[`${S}/reproductor?video=ENC-LULU`] = frame("https://luluvdo.com/e/xyz");
   pages[`${S}/reproductor?video=ENC-ST`] = frame("https://streamtape.com/e/abc/file.mp4");
   pages[`${S}/reproductor?video=ENC-MX`] = frame("https://mixdrop.top/e/abc");
@@ -152,7 +156,7 @@ test("episodes: a page with no caplist, or an empty one, is an error with a sent
   await assert.rejects(plugin.episodes("zz"), (e) => e.code === "not_found");
 });
 
-test("resolve: the best known server first (Mp4Upload), the other three as lazy copies, servers with no extractor left out", async () => {
+test("resolve: Mp4Upload first, the other covered servers as lazy copies, mega (no resolver support) left out", async () => {
   installEpisode();
   const s = await plugin.resolve(`e:${slug}:1`);
   assert.equal(doorCalls[0], "https://www.mp4upload.com/embed-abc.html");
@@ -160,9 +164,9 @@ test("resolve: the best known server first (Mp4Upload), the other three as lazy 
   assert.equal(s.mime, "video/mp4");
   assert.equal(s.label, "Latino · Mp4Upload");
   assert.equal(s.headers.Referer, "https://www.mp4upload.com/");
-  assert.deepEqual(s.alternatives.map((a) => a.label), ["Latino · LuluVdo", "Latino · StreamTape", "Latino · MixDrop"]);
-  assert.deepEqual(s.alternatives.map((a) => a.ref), [`c:${slug}:1:1`, `c:${slug}:1:2`, `c:${slug}:1:3`]);
-  assert.ok(!calls.some((c) => /ENC-(MEGA|VOE|FM)/.test(c.url)), "mega, voe and filemoon are never opened");
+  assert.deepEqual(s.alternatives.map((a) => a.label), ["Latino · VOE", "Latino · StreamTape", "Latino · MixDrop", "Latino · Filemoon", "Latino · LuluVdo"]);
+  assert.deepEqual(s.alternatives.map((a) => a.ref), [`c:${slug}:1:1`, `c:${slug}:1:2`, `c:${slug}:1:3`, `c:${slug}:1:4`, `c:${slug}:1:5`]);
+  assert.ok(!calls.some((c) => /ENC-MEGA/.test(c.url)), "mega is never opened (no resolver support)");
 });
 
 test("resolve: without the resolver installed it asks to install the playback engine (and never names the brand)", async () => {
@@ -173,10 +177,11 @@ test("resolve: without the resolver installed it asks to install the playback en
 
 test("resolve: each lazy copy opens its own server, with the right file type and no further alternatives", async () => {
   installEpisode();
-  const lulu = await plugin.resolve(`c:${slug}:1:1`);
-  assert.equal(lulu.mime, "application/vnd.apple.mpegurl");
-  assert.match(lulu.url, /master\.m3u8/);
-  assert.equal(lulu.alternatives, undefined);
+  const voe = await plugin.resolve(`c:${slug}:1:1`);
+  assert.equal(voe.mime, "application/vnd.apple.mpegurl");
+  assert.match(voe.url, /master\.m3u8/);
+  assert.equal(voe.label, "Latino · VOE");
+  assert.equal(voe.alternatives, undefined);
   const st = await plugin.resolve(`c:${slug}:1:2`);
   assert.match(st.url, /^https:\/\/streamtape\.com\/get_video\?id=.+token=/);
   assert.equal(st.label, "Latino · StreamTape");
@@ -189,8 +194,8 @@ test("resolve: a server that fails falls through to the next one; all failing is
   // The door returns no stream for mp4upload: resolve falls through to LuluVdo.
   door = (url) => (/mp4upload/i.test(url) ? { streams: [] } : defaultDoor(url));
   const s = await plugin.resolve(`e:${slug}:1`);
-  assert.equal(s.label, "Latino · LuluVdo");
-  assert.deepEqual(s.alternatives.map((a) => a.ref), [`c:${slug}:1:0`, `c:${slug}:1:2`, `c:${slug}:1:3`]);
+  assert.equal(s.label, "Latino · VOE"); // mp4upload gave nothing, VOE (next) plays
+  assert.deepEqual(s.alternatives.map((a) => a.ref), [`c:${slug}:1:0`, `c:${slug}:1:2`, `c:${slug}:1:3`, `c:${slug}:1:4`, `c:${slug}:1:5`]);
   door = () => ({ streams: [] }); // every server fails
   await assert.rejects(plugin.resolve(`e:${slug}:1`), (e) => e.code === "not_found" && /Ningún servidor/.test(e.userMessage));
 });

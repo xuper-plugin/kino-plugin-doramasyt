@@ -20,7 +20,7 @@ globalThis.__kinoDropPendingFetches = true;
 
 
 const RESOLVE_MS = 40000;
-const MAX_COPIES = 6;
+const MAX_COPIES = 8;
 const MAX_CAPTURES = 1;
 const CACHE_MS = 10 * 60 * 1000;
 
@@ -301,10 +301,11 @@ export async function episodes(ref) {
 
 // ---- resolve ----
 
-/** Server names the extractors know, best first: a direct file beats a playlist beats a page that needs more work. */
-const PREFERENCE = [/mp4upload/i, /lulu/i, /streamtape/i, /(mxdrop|mixdrop)/i];
+/** The servers the shared kino-resolver can open, best first: the ones it resolves inline fast, then the gated ones
+ *  (VOE/Filemoon/DoodStream) that it may hand to the WebView capture. `mega` has no resolver support and is left out. */
+const PREFERENCE = [/mp4upload/i, /voe/i, /streamtape/i, /(mxdrop|mixdrop)/i, /filemoon/i, /doodstream|dood/i, /lulu/i];
 const rank = (name) => { const i = PREFERENCE.findIndex((re) => re.test(name)); return i < 0 ? 99 : i; };
-const SERVER_NAMES = { mp4upload: "Mp4Upload", lulu: "LuluVdo", streamtape: "StreamTape", mixdrop: "MixDrop", mxdrop: "MixDrop" };
+const SERVER_NAMES = { mp4upload: "Mp4Upload", voe: "VOE", streamtape: "StreamTape", mixdrop: "MixDrop", mxdrop: "MixDrop", filemoon: "Filemoon", doodstream: "DoodStream", dood: "DoodStream", lulu: "LuluVdo" };
 const prettyName = (name) => { const k = Object.keys(SERVER_NAMES).find((x) => new RegExp(x, "i").test(name)); return k ? SERVER_NAMES[k] : name; };
 
 /** `{ name, value }` players of an episode that a known extractor may open, best first. */
