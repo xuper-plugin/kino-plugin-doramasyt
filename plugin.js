@@ -158,9 +158,10 @@ function pickSlides(rows, pictureOf) {
 }
 var uniform = (items) => items.every((i) => i.backdrop) ? items : items.map(({ backdrop, ...rest }) => rest);
 function railsOf(rows) {
-  return rows.filter((r) => r.items && r.items.length > 0).slice(0, MAX_RAILS).map((r) => ({
+  return rows.filter((r) => !r.hidden && r.items && r.items.length > 0).slice(0, MAX_RAILS).map((r) => ({
     id: r.id,
     title: r.title,
+    ...r.titleEn ? { titleEn: r.titleEn } : {},
     ...r.ref ? { ref: r.ref } : {},
     items: uniform(r.items.slice(0, MAX_RAIL_ITEMS).map(cardOf))
   }));

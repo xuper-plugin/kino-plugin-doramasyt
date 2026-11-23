@@ -312,3 +312,21 @@ test("Kino drops nothing of any tree or answer: phone and TV, Spanish and Englis
     }
   }
 });
+
+test("a row marked hidden feeds the slides only: it is not drawn as a rail", async () => {
+  const s = make({ loadTab: async () => ({ rows: [
+    { id: "carousel", title: "", hidden: true, items: [item(7), item(8)] },
+    { id: "r", title: "Estrenos", items: [posterOnly(1), posterOnly(2)] },
+  ] }) });
+  const all = nodes(await s.screen({ state: await loaded(s), device: "phone", installed }));
+  const rails = all.filter((n) => n.type === "titleRail");
+  assert.deepEqual(rails.map((r) => r.title), ["Estrenos"]);
+  assert.equal(all.find((n) => n.type === "heroCard").title, "Title 7");
+});
+
+test("a row's English title reaches its rail", async () => {
+  const s = make({ loadTab: async () => ({ rows: [{ id: "r", title: "Recién agregadas", titleEn: "Recently added", items: [item(1)] }] }) });
+  const rail = nodes(await s.screen({ state: await loaded(s), device: "phone", installed })).find((n) => n.type === "titleRail");
+  assert.equal(rail.title, "Recién agregadas");
+  assert.equal(rail.titleEn, "Recently added");
+});
