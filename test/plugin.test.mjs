@@ -17,6 +17,9 @@ let cfg = {};
 // decides what `resolve` returns for an embed (default: a stream per known host), `doorCalls` records the embeds asked.
 let resolverUp = true;
 let doorCalls = [];
+// The resolver's ranking a test plays with; by default the order this plugin used to hard-code (Mp4Upload first).
+const OLD_ORDER = { mp4upload: 99, voe: 98, streamtape: 97, mxdrop: 96, filemoon: 95, lulu: 94 };
+let rankTable = OLD_ORDER;
 let door = null;
 const defaultDoor = (url) => {
   if (/mp4upload/i.test(url)) return { streams: [{ url: "https://a1.mp4upload.com/d/abc/file.mp4", kind: "mp4", server: "mp4upload", referer: "https://www.mp4upload.com/" }] };
@@ -49,6 +52,8 @@ globalThis.kino = {
       if (alias !== "resolver") throw kino.error("not_declared", "no provider " + alias);
       if (method === "normalizeHost") { if (!resolverUp) throw kino.error("provider_missing", "not installed"); let h = ""; try { h = new URL(args.url).host; } catch (_) { h = ""; } return { host: h }; }
       if (method === "resolve") { doorCalls.push(args.url); return (door || defaultDoor)(args.url, args.referer); }
+      // kino-resolver's rank: the score table a test sets (null = an older resolver without the call)
+      if (method === "rank") { if (!rankTable) throw kino.error("not_declared", "rank"); return { scores: args.urls.map((u) => rankTable[u] ?? 0) }; }
       throw kino.error("not_declared", method);
     },
   },
@@ -59,7 +64,7 @@ const { addressOf } = await import("../src/extractors/streamtape.js");
 const { extractorFor } = await import("../src/extractors/index.js");
 const { makeReq } = await import("../src/util/http.js");
 
-beforeEach(() => { calls.length = 0; pages = {}; logs = []; store = new Map(); lang = "es"; cfg = {}; resolverUp = true; doorCalls = []; door = null; });
+beforeEach(() => { rankTable = OLD_ORDER; calls.length = 0; pages = {}; logs = []; store = new Map(); lang = "es"; cfg = {}; resolverUp = true; doorCalls = []; door = null; });
 
 const S = "https://www.doramasyt.com";
 const card = (slug, title, img = "https://www.doramasyt.com/thumbs/x.webp") => `<li class="col mb-3"><article><a href="${S}/dorama/${slug}"><div><img class="lazy" src="${S}/img/capblank.png" data-src="${img}"></div><h3 class="h6">${title}</h3></a></article></li>`;
@@ -168,6 +173,19 @@ test("resolve: Mp4Upload first, every other server offered as a lazy copy (even 
   assert.deepEqual(s.alternatives.map((a) => a.label), ["Latino · VOE", "Latino · StreamTape", "Latino · MixDrop", "Latino · Filemoon", "Latino · LuluVdo", "Latino · mega"]);
   assert.deepEqual(s.alternatives.map((a) => a.ref), [`c:${slug}:1:1`, `c:${slug}:1:2`, `c:${slug}:1:3`, `c:${slug}:1:4`, `c:${slug}:1:5`, `c:${slug}:1:6`]);
   assert.ok(!calls.some((c) => /ENC-MEGA/.test(c.url)), "mega is never opened in the main resolve (Mp4Upload won first)");
+});
+
+test("resolve: servers follow the resolver's ranking (the 2026-11-23 audit: StreamTape/MixDrop ahead, Mp4Upload near the end); an older resolver keeps the site's order", async () => {
+  installEpisode();
+  rankTable = { streamtape: 85, mxdrop: 85, filemoon: 75, voe: 72, lulu: 70, mp4upload: 30 };
+  const s = await plugin.resolve(`e:${slug}:1`);
+  assert.equal(s.label, "Latino · StreamTape");
+  assert.deepEqual(s.alternatives.map((a) => a.label), ["Latino · MixDrop", "Latino · Filemoon", "Latino · VOE", "Latino · LuluVdo", "Latino · Mp4Upload", "Latino · mega"]);
+  rankTable = null;
+  const old = await plugin.resolve(`e:${slug}:1`);
+  // StreamTape opened last time, so the device's learning still tries it first; the stable list is the site's own order
+  assert.equal(old.label, "Latino · StreamTape");
+  assert.deepEqual(old.alternatives.map((a) => a.label).slice(0, 3), ["Latino · mega", "Latino · VOE", "Latino · Mp4Upload"], "no ranking: the site's order, not a guess");
 });
 
 test("resolve: without the resolver installed it asks to install the playback engine (and never names the brand)", async () => {
