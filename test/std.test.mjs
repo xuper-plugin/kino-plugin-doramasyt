@@ -590,3 +590,16 @@ test("snapshot: without the option nothing is fetched, and the script finds the 
   const src = snapshotSource();
   assert.ok(Array.isArray(src.tabs) && typeof src.loadTab === "function");
 });
+
+// ---- server order from the resolver (std 1.9.2) ----
+import { rankServers, scoresFromResolver } from "../src/std/rank.js";
+
+test("rankServers: by group (the person's language), then the resolver's score, then as they came; no scores = own order", async () => {
+  const servers = [{ u: "voe", lang: 0 }, { u: "vidhide", lang: 0 }, { u: "uqload", lang: 1 }, { u: "mixdrop", lang: 0 }];
+  const score = { voe: 72, vidhide: 95, uqload: 35, mixdrop: 85 };
+  const kino = { plugins: { call: async (_a, call, arg) => (call === "rank" ? { scores: arg.urls.map((u) => score[u]) } : null) } };
+  assert.deepEqual((await rankServers(kino, servers, (s) => s.u, (s) => s.lang)).map((s) => s.u), ["vidhide", "mixdrop", "voe", "uqload"]);
+  const old = { plugins: { call: async () => { const e = new Error("x"); e.code = "not_declared"; throw e; } } };
+  assert.deepEqual((await rankServers(old, servers, (s) => s.u, (s) => s.lang)).map((s) => s.u), ["voe", "vidhide", "mixdrop", "uqload"]);
+  assert.equal(await scoresFromResolver(kino, []), null);
+});

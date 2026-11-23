@@ -1,7 +1,7 @@
 {
   "id": "doramasyt",
   "name": "DoramasYT",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "apiVersion": 30,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -147,7 +147,10 @@
     "resolver": {
       "repo": "xuper-plugin/kino-plugin-kino-resolver",
       "door": "resolver",
-      "calls": ["resolve", "rank"]
+      "calls": [
+        "resolve",
+        "rank"
+      ]
     }
   },
   "recommends": [
@@ -182,6 +185,6 @@
   },
   "signature": {
     "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    "value": "aa8ec1b9bdbcde12f838ced026139607680a7355cf71704d0a478670bcefb266d53cac955335360b3d527bcdcb8cff67a6718bc23eb8e7dce2f0b8b7c75f8a09"
+    "value": "045a46161d1b96aadec81529c0ccc8a6599d500f072d54f18d31af5c34a52aef6dca4925c67bd53fff5e3bafa944f34fc374ec77b0756fc89fc5ab35bec7bf06"
   }
 }

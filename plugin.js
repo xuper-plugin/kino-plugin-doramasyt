@@ -327,13 +327,15 @@ var rail = (r, key, words, headers) => ({
   items: r.items,
   ...withHeaders(headers)
 });
-function browseView(cfg, { tab, data, recent, pending, failed, searching = false, device = "phone", own = null }) {
+function browseView(cfg, { tab, data, recent, pending, failed, searching = false, device = "phone", own = null, ownActions = [] }) {
   const tv = device === "tv";
   const tabs = own ? [cfg.tabs[0]] : cfg.tabs;
   const active = tabs.some((t2) => t2.id === tab) ? tab : tabs[0].id;
   const withTabs = tabs.length > 1;
   const body = [];
-  if (own) {
+  const ownBlocks = own && !Array.isArray(own) && Array.isArray(own.blocks) ? own.blocks : null;
+  if (ownBlocks) {
+  } else if (own) {
     body.push(...own);
   } else if (data) {
     const h = cfg.imageHeaders;
@@ -372,6 +374,8 @@ function browseView(cfg, { tab, data, recent, pending, failed, searching = false
     actions: [
       // barSearch: false (std 1.7.0): the plugin draws its own search field in its page instead of the bar's icon.
       ...cfg.barSearch ? [iconButton("searchButton", "search", "search", { ui: searchOpenOps(tabsInBar), event: "searchOpened" })] : [],
+      // std 1.9.0: the page's own bar buttons (page.actions), before the settings gear.
+      ...Array.isArray(ownActions) ? ownActions : [],
       iconButton("settingsButton", "settings", "settings", "openSettings")
     ]
   });
@@ -381,7 +385,7 @@ function browseView(cfg, { tab, data, recent, pending, failed, searching = false
     appBar,
     body: { type: "Column", key: "page", children: [
       ...withTabs && !tv ? [{ type: "Column", key: "tabsRow", padding: { compact: 0, expanded: 24 }, children: [tabBar(tabs, active)] }] : [],
-      { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [...banner ? [banner] : [], { type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
+      { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: ownBlocks ? ownBlocks.filter((b) => b && Array.isArray(b.nodes) && b.nodes.length).flatMap((b, i) => b.edge ? b.nodes : [{ type: "Column", key: "block-" + i, padding: { compact: 12, expanded: 24 }, gap: 16, crossAxisAlignment: "stretch", children: b.nodes }]) : [...banner ? [banner] : [], { type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
     ] },
     ...pending ? { every: { ms: POLL_MS, event: "tick" } } : {}
   };
@@ -722,7 +726,17 @@ function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
     const searching = st.searching === true;
     if (page) {
-      const tree = browseView(cfg, { tab: TAB_IDS[0], data: null, recent: [], pending: false, failed: false, searching, device, own: page.view({ ...c, state: st }) || [] });
+      const tree = browseView(cfg, {
+        tab: TAB_IDS[0],
+        data: null,
+        recent: [],
+        pending: false,
+        failed: false,
+        searching,
+        device,
+        own: page.view({ ...c, state: st }) || [],
+        ownActions: page.actions ? page.actions({ ...c, state: st }) || [] : []
+      });
       const every = page.every ? page.every({ ...c, state: st }) : null;
       return every ? { ...tree, every } : tree;
     }
@@ -894,6 +908,22 @@ function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect
     return handler ? await handler({ ...e, state: e.state || {} }) ?? null : null;
   }
   return { screen: screen2, screenEvent: screenEvent2, notePlayed };
+}
+
+// src/std/rank.js
+async function scoresFromResolver(kino2, urls) {
+  if (!Array.isArray(urls) || urls.length === 0) return null;
+  try {
+    const r = await kino2.plugins.call("resolver", "rank", { urls: urls.slice(0, 64).map(String) });
+    const s = r && Array.isArray(r.scores) ? r.scores : null;
+    return s && s.length === Math.min(urls.length, 64) ? s : null;
+  } catch (_) {
+    return null;
+  }
+}
+async function rankServers(kino2, list, urlOf, groupOf = () => 0) {
+  const scores = await scoresFromResolver(kino2, list.map(urlOf));
+  return list.map((x, i) => ({ x, i, g: groupOf(x), s: scores && i < scores.length ? scores[i] : 0 })).sort((a, b) => a.g - b.g || b.s - a.s || a.i - b.i).map((o) => o.x);
 }
 
 // src/logo.js
@@ -1519,11 +1549,6 @@ async function episodes(ref) {
     episodes: numbers.map((n) => ({ season: 1, number: n, ref: `e:${slug}:${n}`, title: `${t("episode")} ${n}` }))
   };
 }
-var PREFERENCE = [/mp4upload/i, /voe/i, /streamtape/i, /(mxdrop|mixdrop)/i, /filemoon/i, /doodstream|dood/i, /lulu/i];
-var rank = (name) => {
-  const i = PREFERENCE.findIndex((re) => re.test(name));
-  return i < 0 ? 99 : i;
-};
 var SERVER_NAMES = { mp4upload: "Mp4Upload", voe: "VOE", streamtape: "StreamTape", mixdrop: "MixDrop", mxdrop: "MixDrop", filemoon: "Filemoon", doodstream: "DoodStream", dood: "DoodStream", lulu: "LuluVdo" };
 var prettyName = (name) => {
   const k = Object.keys(SERVER_NAMES).find((x) => new RegExp(x, "i").test(name));
@@ -1557,8 +1582,8 @@ function noteServer(name, ok) {
   } catch (_) {
   }
 }
-function usable(players) {
-  return [...players].sort((a, b) => rank(a.name) - rank(b.name)).slice(0, MAX_COPIES);
+async function usable(players) {
+  return (await rankServers(kino, players, (p) => p.name.toLowerCase().replace(/[^a-z0-9.]/g, ""))).slice(0, MAX_COPIES);
 }
 async function openPlayer(player, req, pageUrl, budget) {
   const frame = await req(`${SITE}/reproductor?video=${encodeURIComponent(player.value)}`, { headers: { Referer: pageUrl } });
@@ -1594,7 +1619,7 @@ async function resolve(ref) {
     }
   }
   if (html == null) throw lastError;
-  const players = usable(parsePlayers(html));
+  const players = await usable(parsePlayers(html));
   if (!players.length) throw kino.error("not_found", "no usable players on " + pageUrl, { userMessage: t("noStreams") });
   const stats = readStats();
   const order = only != null ? [only] : players.map((_, i) => i).sort((a, b) => scoreOf(players[b].name, stats) - scoreOf(players[a].name, stats));
