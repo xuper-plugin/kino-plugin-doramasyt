@@ -1,8 +1,8 @@
 {
   "id": "doramasyt",
   "name": "DoramasYT",
-  "version": "0.5.2",
-  "apiVersion": 20,
+  "version": "0.6.0",
+  "apiVersion": 30,
   "entry": "plugin.js",
   "icon": "icon.png",
   "description": "Doramas asiáticos en español (latino, castellano o subtitulados) de doramasyt.com: sección propia, géneros, en emisión, películas y búsqueda.",
