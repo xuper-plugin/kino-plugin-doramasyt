@@ -7,6 +7,7 @@
 import { SITE, GENRES, baseOf, watchUrl, langOf, parseCards, parseShow, parseFacts, parseLatestEpisodes, parseEpisodeNumbers, parsePlayers, parseIframe } from "./doramasyt.js";
 import { makeReq, UA } from "./util/http.js";
 import { makeStandardScreen } from "./std/index.js";
+import { rankServers } from "./std/rank.js";
 import { LOGO, LOGO_ASPECT } from "./logo.js";
 import { resolveViaHelper, resolverInstalled } from "./resolve-door.js";
 import { searchWithTerms } from "./util/terms.js";
@@ -323,8 +324,6 @@ export async function episodes(ref) {
 
 /** The servers the shared kino-resolver can open, best first: the ones it resolves inline fast, then the gated ones
  *  (VOE/Filemoon/DoodStream) that it may hand to the WebView capture. `mega` has no resolver support and is left out. */
-const PREFERENCE = [/mp4upload/i, /voe/i, /streamtape/i, /(mxdrop|mixdrop)/i, /filemoon/i, /doodstream|dood/i, /lulu/i];
-const rank = (name) => { const i = PREFERENCE.findIndex((re) => re.test(name)); return i < 0 ? 99 : i; };
 const SERVER_NAMES = { mp4upload: "Mp4Upload", voe: "VOE", streamtape: "StreamTape", mixdrop: "MixDrop", mxdrop: "MixDrop", filemoon: "Filemoon", doodstream: "DoodStream", dood: "DoodStream", lulu: "LuluVdo" };
 const prettyName = (name) => { const k = Object.keys(SERVER_NAMES).find((x) => new RegExp(x, "i").test(name)); return k ? SERVER_NAMES[k] : name; };
 
@@ -348,11 +347,13 @@ function noteServer(name, ok) {
   } catch (_) { /* the stats are a nicety */ }
 }
 
-/** Every server the episode lists, in the STABLE order (the cp:<i> index points into this list): the preferred hosts
- *  first, the rest after. The shared resolver covers far more hosts than PREFERENCE names, and a host it does not know
+/** Every server the episode lists, in the STABLE order (the cp:<i> index points into this list): the hosts
+ *  the resolver ranks best first, the rest after. The shared resolver covers far more hosts than it ranks, and a host it does not know
  *  inline is still handed to DoramasYT's WebView capture, so nothing the site offers is dropped up front. */
-function usable(players) {
-  return [...players].sort((a, b) => rank(a.name) - rank(b.name)).slice(0, MAX_COPIES);
+async function usable(players) {
+  // kino-resolver's rank call orders the hosters (from its playback audit: Mixdrop/Streamtape/Dood ahead, Mp4upload's
+  // 11 s start near the end); an older resolver leaves the site's own order.
+  return (await rankServers(kino, players, (p) => p.name.toLowerCase().replace(/[^a-z0-9.]/g, ""))).slice(0, MAX_COPIES);
 }
 
 async function openPlayer(player, req, pageUrl, budget) {
@@ -394,7 +395,7 @@ export async function resolve(ref) {
     try { html = await getPage(pageUrl, { Referer: `${SITE}/dorama/${slug}` }); break; } catch (e) { lastError = e; }
   }
   if (html == null) throw lastError;
-  const players = usable(parsePlayers(html));
+  const players = await usable(parsePlayers(html));
   if (!players.length) throw kino.error("not_found", "no usable players on " + pageUrl, { userMessage: t("noStreams") });
 
   // Try order: for the automatic pick, the servers that have worked on this device first (learned score); the
