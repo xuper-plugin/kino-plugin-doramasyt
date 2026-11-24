@@ -409,6 +409,7 @@ test("home: the new-episodes row appears only when at least three shows have one
   assert.equal(rows[0].items[0].ref, "d:show-0-latino-sub-espanol");
   assert.ok(rows[0].items[0].badges.includes("Cap. 10") && rows[0].items[0].badges.includes("Latino"));
   assert.equal(rows[0].ref, undefined, "a row of cards from one page has no Ver más");
+  assert.deepEqual(rows.map((r) => r.genre), ["doramas", "doramas", "doramas", "doramas", "peliculas"], "rows are typed for Kino's Home by categories: doramas (its own shelf), the movies row peliculas");
 });
 
 test("section: four tabs, an unknown tab is the first one, every row has items, the hero names the first title and borrows its TMDB art", async () => {
