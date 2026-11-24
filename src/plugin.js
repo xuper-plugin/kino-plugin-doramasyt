@@ -255,8 +255,31 @@ export async function section({ tab } = {}) {
   return answer;
 }
 
+// ---- categories: a picture for every tile ----
+
+/**
+ * One picture per genre tile: a well-known title of it, as its TMDB backdrop at w780, each checked with a request (200, image/jpeg). Static on purpose: no extra request at runtime. Keys are the site's genre slugs; a genre not listed gets no art (Kino draws its plain tile).
+ * Kino draws a tile's picture from `art` (any public https image).
+ */
+const TM = "https://image.tmdb.org/t/p/w780";
+const TILE_ART = {
+  "k-drama": TM + "/3yEHM2HT2vrUtO93YzTJNgEfiZG.jpg",
+  "j-drama": TM + "/QZaPkNUvhdcKONuO2fXuqtcQRo.jpg",
+  "c-drama": TM + "/ampkwvfwO7o5YMwYAVPKx1PLDaB.jpg",
+  "thai-drama": TM + "/zcYqSMR4PcD4zFnVuXIGgt2Qi5.jpg",
+  romance: TM + "/9XvDKzoFqDLepuC3K3FFXCuD8jc.jpg",
+  comedia: TM + "/kKlzA0owtx63wxpiYxgzSXrx6yz.jpg",
+  drama: TM + "/tmgtlnBnoFvk52xZBO7Z0pTmN9b.jpg",
+  accion: TM + "/29jWaRhKtey1efp5G7Fu97NAmzz.jpg",
+  misterio: TM + "/xuf7G4srLSFcC7Q8YbX7HHEmXG2.jpg",
+  fantasia: TM + "/smSbK5cd8T9XHcxEUcems23BDEF.jpg",
+  historico: TM + "/gQwa6X2nmTHkmDgAifU4wacNqp4.jpg",
+  escolar: TM + "/nFrIKLtWiHiEApHEa1tvM2eDbbh.jpg",
+};
+const tileWithArt = (tile, art) => (art ? { ...tile, art } : tile);
+
 export async function categories() {
-  return GENRES.map((g) => ({ id: "g-" + g.slug, title: g.title, ref: "genre:" + g.slug }));
+  return GENRES.map((g) => tileWithArt({ id: "g-" + g.slug, title: g.title, ref: "genre:" + g.slug }, TILE_ART[g.slug]));
 }
 
 /** A movie's own page: its synopsis, genres, year and length from the site, the background and score from TMDB. */

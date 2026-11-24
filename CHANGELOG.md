@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.10
+
+- Categorías: every genre tile now shows a picture (a well-known show of the genre or country, static, no extra requests)
+
 ## 0.6.8
 
 - Servers ordered by how well each hoster plays (kino-resolver's ranking) (std 1.9.2)

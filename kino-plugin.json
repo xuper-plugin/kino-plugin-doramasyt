@@ -1,7 +1,7 @@
 {
   "id": "doramasyt",
   "name": "DoramasYT",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "apiVersion": 30,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -185,6 +185,6 @@
   },
   "signature": {
     "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    "value": "fd7316213c850ba38554b95a5f61d8ef978b658e6b8882186b27f3070ce33ef98acdee4037a6b1a690d74f6f28725fbaf9762b463ed2e02ae2a9f825074d2d05"
+    "value": "a2e0c3da9c13bb047705779a34f0e2d8ae762ad889fd15a20dc81aa7d9801add35ba1fbdc8f81bb89f52feccdacc41cf28a456bf892982c8c9833dca88025b0c"
   }
 }

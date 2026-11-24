@@ -492,3 +492,9 @@ test("settings: with the covers switched off no lookup is made and the lists sti
   assert.equal(p.items.length, 2);
   assert.equal(tmdbCalls.length, 0);
 });
+
+test("categories: every genre tile has a static https TMDB art picture", async () => {
+  const c = await plugin.categories();
+  for (const x of c) assert.match(x.art, /^https:\/\/image\.tmdb\.org\/t\/p\/w780\/[A-Za-z0-9]+\.jpg$/, x.id);
+  assert.equal(new Set(c.map((x) => x.art)).size, 12);
+});
