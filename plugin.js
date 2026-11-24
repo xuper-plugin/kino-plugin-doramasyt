@@ -1249,6 +1249,7 @@ function catalogDoor(search2) {
 globalThis.__kinoDropPendingFetches = true;
 var RESOLVE_MS = 4e4;
 var MAX_COPIES = 8;
+var TRY_AT_ONCE = 3;
 var MAX_CAPTURES = 1;
 var CAPTURE_PAGE_MS = 23e3;
 function takeCapture(budget) {
@@ -1585,12 +1586,12 @@ function noteServer(name, ok) {
 async function usable(players) {
   return (await rankServers(kino, players, (p) => p.name.toLowerCase().replace(/[^a-z0-9.]/g, ""))).slice(0, MAX_COPIES);
 }
-async function openPlayer(player, req, pageUrl, budget) {
+async function openPlayer(player, req, pageUrl, budget, capture = true) {
   const frame = await req(`${SITE}/reproductor?video=${encodeURIComponent(player.value)}`, { headers: { Referer: pageUrl } });
   if (!frame.ok) return null;
   const embed = parseIframe(await text(frame));
   if (!embed) return null;
-  const out = await resolveViaHelper(embed, kino, SITE + "/", () => takeCapture(budget));
+  const out = await resolveViaHelper(embed, kino, SITE + "/", capture ? () => takeCapture(budget) : false);
   return out;
 }
 function streamOf(out, lang, name) {
@@ -1624,6 +1625,27 @@ async function resolve(ref) {
   const stats = readStats();
   const order = only != null ? [only] : players.map((_, i) => i).sort((a, b) => scoreOf(players[b].name, stats) - scoreOf(players[a].name, stats));
   const failures = [];
+  const deliver = (i, out) => {
+    const stream = streamOf(out, lang, players[i].name);
+    if (only == null) {
+      const others = players.map((_, j) => j).filter((j) => j !== i);
+      if (others.length) stream.alternatives = others.map((j) => ({ ref: `c:${slug}:${number}:${j}`, label: `${t(lang)} \xB7 ${prettyName(players[j].name)}` }));
+      try {
+        standard().notePlayed("d:" + slug);
+      } catch (_) {
+      }
+    }
+    return stream;
+  };
+  if (only == null) {
+    for (let from = 0; from < order.length; from += TRY_AT_ONCE) {
+      const batch = order.slice(from, from + TRY_AT_ONCE).filter((i) => players[i]);
+      const got = await Promise.all(batch.map((i) => openPlayer(players[i], req, pageUrl, budget, false).catch(() => null)));
+      batch.forEach((i, k2) => noteServer(players[i].name, !!got[k2]));
+      const k = got.findIndex(Boolean);
+      if (k >= 0) return deliver(batch[k], got[k]);
+    }
+  }
   for (const i of order) {
     const player = players[i];
     if (!player) continue;
@@ -1631,23 +1653,14 @@ async function resolve(ref) {
       const out = await openPlayer(player, req, pageUrl, budget);
       if (!out) {
         failures.push(`${player.name}: no stream`);
-        noteServer(player.name, false);
+        if (only != null) noteServer(player.name, false);
         continue;
       }
       noteServer(player.name, true);
-      const stream = streamOf(out, lang, player.name);
-      if (only == null) {
-        const others = players.map((_, j) => j).filter((j) => j !== i);
-        if (others.length) stream.alternatives = others.map((j) => ({ ref: `c:${slug}:${number}:${j}`, label: `${t(lang)} \xB7 ${prettyName(players[j].name)}` }));
-        try {
-          standard().notePlayed("d:" + slug);
-        } catch (_) {
-        }
-      }
-      return stream;
+      return deliver(i, out);
     } catch (e) {
       failures.push(`${player.name}: ${e && e.message || e}`);
-      noteServer(player.name, false);
+      if (only != null) noteServer(player.name, false);
     }
   }
   kino.log("resolve " + baseOf(slug) + " " + number + " failed: " + failures.join("; "));

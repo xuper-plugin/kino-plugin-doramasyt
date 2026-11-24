@@ -23,6 +23,7 @@ globalThis.__kinoDropPendingFetches = true;
 
 const RESOLVE_MS = 40000;
 const MAX_COPIES = 8;
+const TRY_AT_ONCE = 3; // servers opened together (without the hidden browser) when a title is played
 const MAX_CAPTURES = 1;
 
 // A WebView capture costs up to 20 s whether or not it finds the video, so the budget is spent on the ATTEMPT, and a capture
@@ -356,14 +357,14 @@ async function usable(players) {
   return (await rankServers(kino, players, (p) => p.name.toLowerCase().replace(/[^a-z0-9.]/g, ""))).slice(0, MAX_COPIES);
 }
 
-async function openPlayer(player, req, pageUrl, budget) {
+async function openPlayer(player, req, pageUrl, budget, capture = true) {
   const frame = await req(`${SITE}/reproductor?video=${encodeURIComponent(player.value)}`, { headers: { Referer: pageUrl } });
   if (!frame.ok) return null;
   const embed = parseIframe(await text(frame));
   if (!embed) return null;
   // Every hoster embed goes to the shared kino-resolver (door); a gated host (e.g. a future VOE) that comes back empty
   // is captured in DoramasYT's own hidden WebView while this resolve still has capture budget.
-  const out = await resolveViaHelper(embed, kino, SITE + "/", () => takeCapture(budget));
+  const out = await resolveViaHelper(embed, kino, SITE + "/", capture ? () => takeCapture(budget) : false);
   return out;
 }
 
@@ -404,23 +405,38 @@ export async function resolve(ref) {
   const stats = readStats();
   const order = only != null ? [only] : players.map((_, i) => i).sort((a, b) => scoreOf(players[b].name, stats) - scoreOf(players[a].name, stats));
   const failures = [];
+  const deliver = (i, out) => {
+    const stream = streamOf(out, lang, players[i].name);
+    if (only == null) {
+      const others = players.map((_, j) => j).filter((j) => j !== i);
+      if (others.length) stream.alternatives = others.map((j) => ({ ref: `c:${slug}:${number}:${j}`, label: `${t(lang)} · ${prettyName(players[j].name)}` }));
+      try { standard().notePlayed("d:" + slug); } catch (_) { /* never fails a play */ }
+    }
+    return stream;
+  };
+  // First the plain way, TRY_AT_ONCE servers together and no hidden browser: the best-placed one that opens plays. One
+  // after another, three deleted files before a live one cost 7-11 s (measured 2026-11-24); together they cost the slowest.
+  if (only == null) {
+    for (let from = 0; from < order.length; from += TRY_AT_ONCE) {
+      const batch = order.slice(from, from + TRY_AT_ONCE).filter((i) => players[i]);
+      const got = await Promise.all(batch.map((i) => openPlayer(players[i], req, pageUrl, budget, false).catch(() => null)));
+      batch.forEach((i, k) => noteServer(players[i].name, !!got[k]));
+      const k = got.findIndex(Boolean);
+      if (k >= 0) return deliver(batch[k], got[k]);
+    }
+  }
+  // Nothing opened the plain way (or one server was asked for): one at a time, the hidden browser allowed.
   for (const i of order) {
     const player = players[i];
     if (!player) continue;
     try {
       const out = await openPlayer(player, req, pageUrl, budget);
-      if (!out) { failures.push(`${player.name}: no stream`); noteServer(player.name, false); continue; }
+      if (!out) { failures.push(`${player.name}: no stream`); if (only != null) noteServer(player.name, false); continue; }
       noteServer(player.name, true);
-      const stream = streamOf(out, lang, player.name);
-      if (only == null) {
-        const others = players.map((_, j) => j).filter((j) => j !== i);
-        if (others.length) stream.alternatives = others.map((j) => ({ ref: `c:${slug}:${number}:${j}`, label: `${t(lang)} · ${prettyName(players[j].name)}` }));
-        try { standard().notePlayed("d:" + slug); } catch (_) { /* never fails a play */ }
-      }
-      return stream;
+      return deliver(i, out);
     } catch (e) {
       failures.push(`${player.name}: ${(e && e.message) || e}`);
-      noteServer(player.name, false);
+      if (only != null) noteServer(player.name, false);
     }
   }
   kino.log("resolve " + baseOf(slug) + " " + number + " failed: " + failures.join("; "));
