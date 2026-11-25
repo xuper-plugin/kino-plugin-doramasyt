@@ -911,6 +911,11 @@ function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect
 }
 
 // src/std/rank.js
+var NEVER_OFFER = /waaw|netu|hqq\./i;
+function offered(url, score) {
+  if (NEVER_OFFER.test(String(url || ""))) return false;
+  return !(typeof score === "number" && score < 0);
+}
 async function scoresFromResolver(kino2, urls) {
   if (!Array.isArray(urls) || urls.length === 0) return null;
   try {
@@ -923,7 +928,7 @@ async function scoresFromResolver(kino2, urls) {
 }
 async function rankServers(kino2, list, urlOf, groupOf = () => 0) {
   const scores = await scoresFromResolver(kino2, list.map(urlOf));
-  return list.map((x, i) => ({ x, i, g: groupOf(x), s: scores && i < scores.length ? scores[i] : 0 })).sort((a, b) => a.g - b.g || b.s - a.s || a.i - b.i).map((o) => o.x);
+  return list.map((x, i) => ({ x, i, g: groupOf(x), s: scores && i < scores.length ? scores[i] : 0 })).filter((o) => offered(urlOf(o.x), scores && o.i < scores.length ? scores[o.i] : null)).sort((a, b) => a.g - b.g || b.s - a.s || a.i - b.i).map((o) => o.x);
 }
 
 // src/logo.js
@@ -1213,6 +1218,7 @@ async function within(ms, work) {
 
 // src/std/catalog.js
 var CATALOG_MAX = 40;
+var CATALOG_EPISODES_MAX = 500;
 var OVERVIEW_MAX2 = 300;
 var HTTPS3 = /^https:\/\//;
 function catalogItems(found) {
@@ -1235,13 +1241,42 @@ function catalogItems(found) {
 function catalogQuery(arg) {
   const q = String(arg && arg.q || "").trim().slice(0, 200);
   const type = arg && (arg.type === "movie" || arg.type === "series") ? arg.type : "any";
-  return { q, type, season: 0, episode: 0, tmdbId: 0, year: 0, originalTitle: "", altTitles: [], cursor: null };
+  const tmdbId = arg && Number.isInteger(arg.tmdb) && arg.tmdb > 0 ? arg.tmdb : 0;
+  return { q, type, season: 0, episode: 0, tmdbId, year: 0, originalTitle: "", altTitles: [], cursor: null };
 }
 function catalogDoor(search2) {
   return async (arg) => {
     const query = catalogQuery(arg);
     if (!query.q) return [];
     return catalogItems(await search2(query));
+  };
+}
+function wholeNumber(v) {
+  if (Number.isInteger(v)) return v;
+  if (typeof v === "string" && /^\s*\d+\s*$/.test(v)) return parseInt(v, 10);
+  return null;
+}
+function catalogEpisodes(list) {
+  const rows = Array.isArray(list) ? list : list && Array.isArray(list.episodes) ? list.episodes : [];
+  const out = [];
+  for (const e of rows) {
+    if (out.length >= CATALOG_EPISODES_MAX) break;
+    if (!e) continue;
+    const number = wholeNumber(e.number);
+    if (number === null || number < 1 || typeof e.ref !== "string" || !e.ref) continue;
+    const season = e.season === void 0 || e.season === null ? 1 : wholeNumber(e.season);
+    if (season === null || season < 0) continue;
+    const row = { season, number, ref: e.ref };
+    if (typeof e.title === "string" && e.title) row.title = e.title;
+    out.push(row);
+  }
+  return out;
+}
+function catalogEpisodesDoor(episodes2) {
+  return async (arg) => {
+    const ref = arg && typeof arg.ref === "string" ? arg.ref.trim() : "";
+    if (!ref) return [];
+    return catalogEpisodes(await episodes2(ref));
   };
 }
 
@@ -1708,6 +1743,7 @@ async function screenEvent(ev) {
   return standard().screenEvent(ev && typeof ev === "object" ? ev : {});
 }
 var proto_catalog_search = catalogDoor(search);
+var proto_catalog_episodes = catalogEpisodesDoor(episodes);
 export {
   action,
   browse,
@@ -1715,6 +1751,7 @@ export {
   details,
   episodes,
   home,
+  proto_catalog_episodes,
   proto_catalog_search,
   resolve,
   screen,

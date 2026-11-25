@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.11
+
+- The catalog door also lists a series' episodes, for the author's other plugins (std 1.10.0)
+
 ## 0.6.10
 
 - Categorías: every genre tile now shows a picture (a well-known show of the genre or country, static, no extra requests)
