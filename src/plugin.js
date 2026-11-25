@@ -122,13 +122,17 @@ const LISTINGS = {
   pelisnew: { path: `/doramas?categoria=pelicula&fecha=${YEAR}`, titleKey: "moviesNew", kind: "movie" },
 };
 
-/** `{ path, titleKey, kind }` for a browse ref: "list:<name>" or "genre:<slug>"; null for anything else. */
+/**
+ * `{ path, titleKey, kind, start }` for a browse ref: "list:<name>" or "genre:<slug>", with ":p<n>" when it starts at page n (the
+ * "Más películas" row is page 2, so its "Ver más" goes on from there); null for anything else.
+ */
 function listingOf(ref) {
-  const m = /^(list|genre):([a-z0-9-]+)$/.exec(String(ref || ""));
+  const m = /^(list|genre):([a-z0-9-]+)(?::p([1-9]\d{0,3}))?$/.exec(String(ref || ""));
   if (!m) return null;
-  if (m[1] === "list") return LISTINGS[m[2]] ? { ...LISTINGS[m[2]], name: m[2] } : null;
+  const start = m[3] ? Number(m[3]) : 1;
+  if (m[1] === "list") return LISTINGS[m[2]] ? { ...LISTINGS[m[2]], name: m[2], start } : null;
   const g = GENRES.find((x) => x.slug === m[2]);
-  return g ? { path: "/genero/" + g.slug, title: g.title, kind: "series", name: "genre-" + g.slug } : null;
+  return g ? { path: "/genero/" + g.slug, title: g.title, kind: "series", name: "genre-" + g.slug, start } : null;
 }
 
 /** What the person chose in Ajustes ▸ DoramasYT to show: everything, only what is dubbed (Latino, Castellano) or only what is subtitled. */
@@ -192,7 +196,7 @@ export async function home() {
 export async function browse(ref, cursor) {
   const def = listingOf(ref);
   if (!def) return { items: [] };
-  const page = cursor ? Math.max(1, parseInt(cursor, 10) || 1) : 1;
+  const page = cursor ? Math.max(1, parseInt(cursor, 10) || 1) : def.start;
   const cards = await listing(def, page);
   const items = byAudio(cards).map((c) => toItem(c, def.kind));
   await addArt(items);
@@ -242,7 +246,7 @@ export async function section({ tab } = {}) {
     const d = listingOf("list:peliculas");
     rows = await Promise.all([
       listRow("peliculas"), listRow("pelisnew"),
-      safeRow("peliculas2", async () => { const items = byAudio(await listing(d, 2)).map((c) => toItem(c, "movie")); return items.length ? { id: "peliculas2", title: t("moreMovies"), items, genre: "peliculas" } : null; }),
+      safeRow("peliculas2", async () => { const items = byAudio(await listing(d, 2)).map((c) => toItem(c, "movie")); return items.length ? { id: "peliculas2", title: t("moreMovies"), items, ref: "list:peliculas:p2", genre: "peliculas" } : null; }),
     ]);
   } else {
     // By genre: the slugs after the four country ones (romance, comedia, drama, accion, misterio, fantasia, historico, escolar).

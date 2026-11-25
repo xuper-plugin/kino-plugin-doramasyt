@@ -109,6 +109,50 @@ function goFmt(v) {
 }
 
 /**
+ * PluginScreenOutput.episodeGoOf (apiVersion 35, additive): a `go.episode`'s value, only its fields, an owner/repo origin, a
+ * ref of 1 to maxRefChars, a whole season and episode in range, the title scrubbed, an optional id (idPattern) and an optional
+ * boolean adult (kept only when true, as Kino's notice keeps it); [bad] told the first reason it is not.
+ */
+export function episodeGoOf(v, bad) {
+  const E = contract.manifest.screen.goEpisode;
+  if (v === null || typeof v !== "object" || Array.isArray(v)) { bad("is not an object"); return null; }
+  if (Object.keys(v).some((k) => !E.fields.includes(k))) { bad(`takes only ${E.fields.join(", ")}`); return null; }
+  const present = (k) => v[k] !== undefined && v[k] !== null;
+  const origin = present("origin") ? v.origin : null;
+  if (typeof origin !== "string" || origin.length > E.maxOriginChars || !new RegExp(E.originPattern).test(origin)) {
+    bad(`origin must be owner/repo, at most ${E.maxOriginChars} characters`); return null;
+  }
+  const ref = present("ref") ? v.ref : null;
+  if (typeof ref !== "string" || ref.length === 0 || ref.length > E.maxRefChars) { bad(`ref must be 1 to ${E.maxRefChars} characters`); return null; }
+  const whole = (k, lo, hi) => {
+    const d = present(k) ? v[k] : null;
+    if (typeof d !== "number" || !Number.isInteger(d) || d < lo || d > hi) { bad(`${k} must be a whole number from ${lo} to ${hi}`); return null; }
+    return d;
+  };
+  const season = whole("season", 0, E.maxSeason);
+  if (season === null) return null;
+  const episode = whole("episode", 1, E.maxEpisode);
+  if (episode === null) return null;
+  const badTitle = `title must be text of at most ${E.maxTitleChars} characters`;
+  const out = { origin, ref, season, episode };
+  if (present("title")) {
+    if (typeof v.title !== "string") { bad(badTitle); return null; }
+    const t = v.title.replace(new RegExp(contract.manifest.screen.goTitleByIds.scrubPattern, "g"), "").trim();
+    if (t.length > E.maxTitleChars) { bad(badTitle); return null; }
+    if (t !== "") out.title = t;
+  }
+  if (present("id")) {
+    if (typeof v.id !== "string" || !new RegExp(E.idPattern).test(v.id)) { bad("id must be 1 to 128 of A-Z a-z 0-9 . _ ~ -"); return null; }
+    out.id = v.id;
+  }
+  if (present("adult")) {
+    if (typeof v.adult !== "boolean") { bad("adult must be true or false"); return null; }
+    if (v.adult) out.adult = true;
+  }
+  return out;
+}
+
+/**
  * PluginScreenOutput.titleByIdsOf (Task 8m): a `go.titleByIds`'s value, only its fields, a kind of movie or series, at least
  * one of tmdb and imdb, every number a whole number in its range and the title scrubbed; or null with [bad] told the first
  * reason. A null field is an absent one. Shared by screens and the player panel's answers. Returns only the fields kept.

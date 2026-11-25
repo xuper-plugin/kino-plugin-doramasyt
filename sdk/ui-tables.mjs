@@ -516,6 +516,7 @@ const GO_FIELDS = {
   uninstallPlugin: `\`{ uninstallPlugin: { ${S.goUninstallPlugin.fields.join(", ")} } }\``,
   applyImageTheme: `\`{ applyImageTheme: { ${S.goApplyImageTheme.fields.join(", ")} } }\``,
   plugin: `\`{ plugin: { ${S.goPlugin.fields.join(", ")} } }\``,
+  episode: `\`{ episode: { ${S.goEpisode.fields.join(", ")} } }\``,
   setExperience: `\`{ setExperience: ${S.goSetExperience.words.map((w) => `"${w}"`).join(" | ")} }\``,
 };
 const GO_OPENS = {
@@ -529,6 +530,7 @@ const GO_OPENS = {
   close: "closes the screen",
   screen: `this plugin's own screen at \`route\` (at most ${L.maxGoRouteChars} characters) with \`args\` (at most ${n(L.maxGoArgsBytes)} bytes)`,
   titleByIds: "Kino's own title page for TMDB or IMDb ids, with every source the person has",
+  episode: "one chapter (`season`, `episode`) of another plugin's series, named by its `origin` (`owner/repo`) and its own series `ref`",
   url: "an https link in the browser, after Kino's own sheet (a QR code on a TV)",
   copy: `Kino copies \`text\` (at most ${S.goCopy.maxTextChars} characters, ${S.goCopy.maxLines} lines) and shows its own «Copiado» toast; a TV cannot`,
   liveChannel: "tunes the player to an En vivo provider's channel (only for a plugin whose player tab joins live channels)",
@@ -548,7 +550,7 @@ const goFrom = (g) => g === "relinkTelegram" ? `only the person's own ${S.goUrl.
   : g === "installPlugin" ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} on your screen, from apiVersion ${S.goInstallPlugin.apiVersion}`
   : g === "setExperience" ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} on your screen, from apiVersion ${S.goSetExperience.apiVersion}`
   : g === "useTheme" ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} on your screen, from apiVersion ${S.goUseTheme.apiVersion}`
-  : g === "titleByIds" || g === "url" || g === "copy" || g === "liveChannel" || g === "syncProvider"
+  : g === "titleByIds" || g === "url" || g === "copy" || g === "liveChannel" || g === "syncProvider" || g === "episode"
   ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")}`
   : g === "screen" ? "a tap or an answer, `open`'s included" : "a tap or an event's answer (never `open`'s, a timer's or an `onClose`'s)";
 

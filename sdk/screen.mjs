@@ -5,7 +5,7 @@
 // invalid node, style value, action or field is dropped with a reason. Like panel.mjs it reads the answer the way org.json
 // does (the answer crosses to Kino as JSON), and like the Kotlin it walks a JSON object's keys SORTED wherever the walk
 // can log, so the lines come out in the same order. plugins/sdk/test/screen-cases.json is the case table both sides share.
-import { contract, imageVerdict, isUserServer, javaDouble, screenGoOf, screenItems, titleByIdsOf, urlGoOf, copyGoOf, liveChannelGoOf, useThemeGoOf, setExperienceGoOf, installPluginGoOf, pluginGoOf, applyImageThemeGoOf } from "./contract.mjs";
+import { contract, imageVerdict, isUserServer, javaDouble, screenGoOf, screenItems, titleByIdsOf, urlGoOf, copyGoOf, liveChannelGoOf, useThemeGoOf, setExperienceGoOf, installPluginGoOf, pluginGoOf, applyImageThemeGoOf, episodeGoOf } from "./contract.mjs";
 import { badgeOf, cappedLog, colorHint, panelAccentOf, panelMessageOf, panelPlayerOf, panelRefreshOf, panelTabsOf } from "./panel.mjs";
 
 // ---------- limits and name tables (ScreenLimits, ScreenWidgets; numbers come from the contract file) ----------
@@ -2631,6 +2631,11 @@ class Reader {
     if (k === "titleByIds") {
       const g = titleByIdsOf(v, (why) => this.log(`${where} go.titleByIds ${why}, dropped`));
       return g === null ? null : { titleByIds: g };
+    }
+    // apiVersion 35, additive: no apiVersion gate.
+    if (k === "episode") {
+      const g = episodeGoOf(v, (why) => this.log(`${where} go.episode ${why}, dropped`));
+      return g === null ? null : { episode: g };
     }
     if (k === "url") {
       const g = urlGoOf(v, (why) => this.log(`${where} go.url ${why}, dropped`));

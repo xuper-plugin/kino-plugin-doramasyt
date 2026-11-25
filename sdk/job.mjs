@@ -75,6 +75,20 @@ export function jobKino(kino, budget, log = () => {}) {
   }
   // apiVersion 17: kino.tmdb, each call one of the run's requests (the app's PluginKinoServices.tmdb).
   if (typeof kino.tmdb === "function") out.tmdb = (...args) => (budget.takeFetch() ? kino.tmdb(...args) : Promise.reject(limitError()));
+  // apiVersion 35 (additiveFromApp "job.plugins"): call, callAll and providers to the doors the plugin consumes, each one of the
+  // run's requests, charged before the arguments are checked (a refused or failed one counts too; a callAll counts once), as
+  // the app's PluginKinoServices.doorRequest. kino.plugins.setup / setupStatus stay refused: a job has nobody to ask.
+  if (kino.plugins !== null && typeof kino.plugins === "object") {
+    const charged = (f) => (...args) => (budget.takeFetch() ? f(...args) : Promise.reject(limitError()));
+    const p = kino.plugins;
+    out.plugins = Object.freeze({
+      ...(typeof p.call === "function" ? { call: charged(p.call) } : {}),
+      ...(typeof p.callAll === "function" ? { callAll: charged(p.callAll) } : {}),
+      ...(typeof p.providers === "function" ? { providers: charged(p.providers) } : {}),
+      ...(typeof p.setup === "function" ? { setup: asyncRefused("kino.plugins.setup") } : {}),
+      ...(typeof p.setupStatus === "function" ? { setupStatus: asyncRefused("kino.plugins.setupStatus") } : {}),
+    });
+  }
   let chain = Promise.resolve();
   out.fetch = (url, opts) => {
     if (!budget.takeFetch()) return Promise.reject(limitError());

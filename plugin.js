@@ -1399,11 +1399,12 @@ var LISTINGS = {
   pelisnew: { path: `/doramas?categoria=pelicula&fecha=${YEAR}`, titleKey: "moviesNew", kind: "movie" }
 };
 function listingOf(ref) {
-  const m = /^(list|genre):([a-z0-9-]+)$/.exec(String(ref || ""));
+  const m = /^(list|genre):([a-z0-9-]+)(?::p([1-9]\d{0,3}))?$/.exec(String(ref || ""));
   if (!m) return null;
-  if (m[1] === "list") return LISTINGS[m[2]] ? { ...LISTINGS[m[2]], name: m[2] } : null;
+  const start = m[3] ? Number(m[3]) : 1;
+  if (m[1] === "list") return LISTINGS[m[2]] ? { ...LISTINGS[m[2]], name: m[2], start } : null;
   const g = GENRES.find((x) => x.slug === m[2]);
-  return g ? { path: "/genero/" + g.slug, title: g.title, kind: "series", name: "genre-" + g.slug } : null;
+  return g ? { path: "/genero/" + g.slug, title: g.title, kind: "series", name: "genre-" + g.slug, start } : null;
 }
 function audioChoice() {
   try {
@@ -1468,7 +1469,7 @@ async function home() {
 async function browse(ref, cursor) {
   const def = listingOf(ref);
   if (!def) return { items: [] };
-  const page = cursor ? Math.max(1, parseInt(cursor, 10) || 1) : 1;
+  const page = cursor ? Math.max(1, parseInt(cursor, 10) || 1) : def.start;
   const cards = await listing(def, page);
   const items = byAudio(cards).map((c) => toItem(c, def.kind));
   await addArt(items);
@@ -1510,7 +1511,7 @@ async function section({ tab } = {}) {
       listRow("pelisnew"),
       safeRow("peliculas2", async () => {
         const items = byAudio(await listing(d, 2)).map((c) => toItem(c, "movie"));
-        return items.length ? { id: "peliculas2", title: t("moreMovies"), items, genre: "peliculas" } : null;
+        return items.length ? { id: "peliculas2", title: t("moreMovies"), items, ref: "list:peliculas:p2", genre: "peliculas" } : null;
       })
     ]);
   } else {

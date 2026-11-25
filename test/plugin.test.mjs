@@ -130,6 +130,22 @@ test("browse pages by ?page=N and offers the next page only on a full page", asy
   assert.deepEqual((await plugin.browse("nope", null)).items, []);
 });
 
+test("\"Más películas\" is page 2 of the movies: its Ver más goes on from page 2, never back to page 1", async () => {
+  const page = (n) => ({ body: `<ul>${Array.from({ length: 24 }, (_, i) => card(`p${n}-${i}-sub-espanol`, `Peli ${n}-${i}`)).join("")}</ul>` });
+  pages[S + "/doramas?categoria=pelicula"] = page(1);
+  pages[S + "/doramas?categoria=pelicula&page=2"] = page(2);
+  pages[S + "/doramas?categoria=pelicula&page=3"] = page(3);
+  const { rows } = await plugin.section({ tab: "peliculas" });
+  const second = rows.find((r) => r.id === "peliculas2");
+  assert.equal(second.ref, "list:peliculas:p2");
+  const p2 = await plugin.browse(second.ref, null);
+  assert.deepEqual(p2.items.map((i) => i.ref), second.items.map((i) => i.ref), "Ver más opens on the row's own page");
+  assert.equal(p2.next, "3");
+  assert.equal((await plugin.browse(second.ref, p2.next)).items[0].ref, "m:p3-0-sub-espanol");
+  assert.equal((await plugin.browse("list:peliculas", null)).items[0].ref, "m:p1-0-sub-espanol", "the plain list still starts at page 1");
+  assert.deepEqual((await plugin.browse("list:peliculas:p0", null)).items, []);
+});
+
 test("search: asks /buscar?q=, short queries ask nothing", async () => {
   pages[S + "/buscar?q=kim%20moon"] = { body: LISTING };
   assert.equal((await plugin.search("kim moon")).length, 2);

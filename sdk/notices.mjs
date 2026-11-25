@@ -3,7 +3,7 @@
 // calls that may post (screen, screenEvent, job), every field, the go shapes, 20 posts an hour, 30 kept, 30 days. What a plugin
 // posted is kept in a file next to it (`.kino-notices.json`) and `node sdk/run.mjs <folder> notifications` prints it.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { contract } from "./contract.mjs";
+import { contract, episodeGoOf } from "./contract.mjs";
 
 const N = contract.kinoNotifications;
 const SCRUB = new RegExp(contract.manifest.screen.goCopy?.textScrub ?? "[\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F\\u061C\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2066-\\u2069\\uFEFF]", "g");
@@ -35,6 +35,10 @@ export function noticeGo(go) {
     if (!["movie", "series"].includes(v.kind)) return null;
     if (!(Number.isInteger(v.tmdb) && v.tmdb > 0) && !(typeof v.imdb === "string" && /^tt\d{7,10}$/.test(v.imdb))) return null;
     return { titleByIds: v };
+  }
+  if (keys[0] === "episode") {
+    const g = episodeGoOf(v, () => {});
+    return g === null ? null : { episode: g };
   }
   if (typeof v.ref !== "string" || !v.ref || typeof v.kind !== "string") return null;
   return { title: v };

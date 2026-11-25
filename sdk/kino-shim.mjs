@@ -1903,9 +1903,10 @@ export function createKino(manifest, { appVersion = "sdk", filesDir = null, lang
     if (!(manifest.capabilities || []).includes(LB.capability) || libraryOff) {
       throw kinoError("permission_denied", 'kino.library needs the "library" capability, approved by the person');
     }
-    // Task 8q: a job's own run (run.mjs ... job) reads it too, with the same approval (PluginLibrary.FROM_JOB).
-    if (syncCall || (callFunction !== null && !LB.fromFunctions.includes(callFunction) && callFunction !== contract.kinoJobs.export)) {
-      throw kinoError("permission_denied", `kino.library only answers while the person uses the plugin (${LB.fromFunctions.join(", ")})`);
+    // Task 8q: a job's own run (run.mjs ... job) reads it too, with the same approval (PluginLibrary.FROM_JOB, "job" in
+    // contract.kinoLibrary.fromFunctions); the app's message names only the person's own exports.
+    if (syncCall || (callFunction !== null && !LB.fromFunctions.includes(callFunction))) {
+      throw kinoError("permission_denied", `kino.library only answers while the person uses the plugin (${LB.fromFunctions.filter((f) => f !== contract.kinoJobs.export).join(", ")})`);
     }
   }
   // kino.library.stats (apiVersion 17, "Tu mes en Kino", contract.kinoLibrary.stats): the fixture's `stats` is { "yyyy-mm": month }; a
