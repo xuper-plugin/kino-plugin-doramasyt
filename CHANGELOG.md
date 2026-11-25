@@ -2,7 +2,7 @@
 
 ## 0.6.11
 
-- The catalog door also lists a series' episodes, for the author's other plugins (std 1.10.0)
+- The catalog door also lists a series' episodes, for the author's other plugins (std 1.10.1)
 
 ## 0.6.10
 
